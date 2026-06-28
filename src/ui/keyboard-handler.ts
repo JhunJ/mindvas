@@ -17,8 +17,6 @@ import { isNodeBranchHidden } from "../mindmap/branch-fold";
  * Registers all mind map keyboard shortcuts on the canvas.
  */
 export class KeyboardHandler {
-	/** Called before actions that leave the current node, to finalize auto-resize. */
-	onBeforeLeaveNode: (() => void) | null = null;
 	/** Padding (px) added around target node when zooming after navigation. */
 	zoomPadding: number = 0;
 
@@ -65,7 +63,6 @@ export class KeyboardHandler {
 				if (!node.isEditing) return false;
 				if (checking) return true;
 
-				this.onBeforeLeaveNode?.();
 				node.blur();
 			},
 		});
@@ -85,7 +82,6 @@ export class KeyboardHandler {
 				if (node.isEditing) {
 					selectedText = this.extractAndDeleteSelection(node);
 				}
-				this.onBeforeLeaveNode?.();
 				const newNode = this.nodeOps.addChild(canvas, node);
 				if (newNode) {
 					if (selectedText) newNode.setText(selectedText);
@@ -114,7 +110,6 @@ export class KeyboardHandler {
 				if (node.isEditing) {
 					selectedText = this.extractAndDeleteSelection(node);
 				}
-				this.onBeforeLeaveNode?.();
 				const newNode = this.nodeOps.addSibling(canvas, node);
 				if (newNode) {
 					if (selectedText) newNode.setText(selectedText);
@@ -142,7 +137,6 @@ export class KeyboardHandler {
 				if (!node) return false;
 				if (checking) return true;
 
-				this.onBeforeLeaveNode?.();
 				const parent = this.nodeOps.deleteAndFocusParent(
 					canvas,
 					node
@@ -173,7 +167,6 @@ export class KeyboardHandler {
 				if (checking) return true;
 
 				const wasEditing = node.isEditing;
-				if (!wasEditing) this.onBeforeLeaveNode?.();
 				const parentNode = this.nodeOps.flipBranch(canvas, node);
 				if (parentNode) {
 					this.layoutEngine.layoutChildren(canvas, parentNode.id);
@@ -199,8 +192,6 @@ export class KeyboardHandler {
 				const children = this.canvasApi.getChildNodes(canvas, node);
 				if (children.length < 2) return false;
 				if (checking) return true;
-
-				this.onBeforeLeaveNode?.();
 
 				const nodeCx = node.x + node.width / 2;
 
@@ -533,7 +524,6 @@ export class KeyboardHandler {
 		const target = getTarget(treeNode);
 		if (!target || isNodeBranchHidden(canvas, target.id)) return false;
 
-		this.onBeforeLeaveNode?.();
 		// Relayout from the root of the tree containing the node being left
 		let root = treeNode;
 		while (root.parent) root = root.parent;

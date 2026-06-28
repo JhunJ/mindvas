@@ -1,8 +1,9 @@
 import { ItemView, WorkspaceLeaf, setIcon, Menu, Notice, SearchComponent } from "obsidian";
 import type { Canvas, CanvasNode, CanvasView as CanvasViewType } from "../types/canvas-internal";
 import { buildForest, TreeNode, getDescendants, getGroupIds } from "../mindmap/tree-model";
-import { getCollapsedBranches } from "../mindmap/branch-fold";
+import { getCollapsedBranches, areAllBranchesCollapsed } from "../mindmap/branch-fold";
 import { isMobileApp } from "./mobile-utils";
+import { attachContentEditableArrowShortcut } from "./arrow-shortcut";
 
 export const OUTLINE_VIEW_TYPE = "mindvas-outline";
 
@@ -38,6 +39,8 @@ export class OutlineView extends ItemView {
 	zoomPadding = 0;
 	onForestLayout: ((canvas: Canvas, groupId: string) => void) | null = null;
 	onToggleBranchFold: ((nodeId: string) => void) | null = null;
+	onCollapseAllBranches: (() => void) | null = null;
+	onExpandAllBranches: (() => void) | null = null;
 
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
@@ -80,14 +83,20 @@ export class OutlineView extends ItemView {
 		setIcon(this.collapseBtnEl, "chevrons-down-up");
 		this.collapseBtnEl.addEventListener("click", () => {
 			if (!this.lastCanvas) return;
-			const allCollapsed = this.groupIds.length > 0
+
+			const allGroupsCollapsed = this.groupIds.length > 0
 				&& this.groupIds.every(id => this.collapsedGroups.has(id));
+			const allBranchesCollapsed = areAllBranchesCollapsed(this.lastCanvas);
+			const allCollapsed = allBranchesCollapsed
+				&& (this.groupIds.length === 0 || allGroupsCollapsed);
+
 			if (allCollapsed) {
 				this.collapsedGroups.clear();
+				this.onExpandAllBranches?.();
 			} else {
 				for (const id of this.groupIds) this.collapsedGroups.add(id);
+				this.onCollapseAllBranches?.();
 			}
-			this.refresh(this.lastCanvas);
 		});
 
 		// Search input container
@@ -249,8 +258,11 @@ export class OutlineView extends ItemView {
 		}
 
 		this.groupIds = groups.filter(g => g.roots.length > 0).map(g => g.node.id);
-		const allCollapsed = this.groupIds.length > 0
+		const allGroupsCollapsed = this.groupIds.length > 0
 			&& this.groupIds.every(id => this.collapsedGroups.has(id));
+		const allBranchesCollapsed = areAllBranchesCollapsed(canvas);
+		const allCollapsed = allBranchesCollapsed
+			&& (this.groupIds.length === 0 || allGroupsCollapsed);
 		if (this.collapseBtnEl) {
 			setIcon(this.collapseBtnEl, allCollapsed ? "chevrons-up-down" : "chevrons-down-up");
 			this.collapseBtnEl.setAttribute("aria-label", allCollapsed ? "Expand all" : "Collapse all");
@@ -791,8 +803,10 @@ export class OutlineView extends ItemView {
 
 		const onBlur = () => commit();
 		const onClick = (e: MouseEvent) => e.stopPropagation();
+		const detachArrowShortcut = attachContentEditableArrowShortcut(labelSpan);
 
 		const cleanup = () => {
+			detachArrowShortcut();
 			labelSpan.removeEventListener("keydown", onKeydown);
 			labelSpan.removeEventListener("blur", onBlur);
 			labelSpan.removeEventListener("click", onClick);

@@ -252,6 +252,42 @@ export function toggleBranchFold(
 	canvas.requestFrame();
 }
 
+/** Collect IDs of every node that has children (can be branch-collapsed). */
+export function getAllBranchParentIds(canvas: Canvas): string[] {
+	const ids: string[] = [];
+	const walk = (node: TreeNode): void => {
+		if (node.children.length > 0) {
+			ids.push(node.canvasNode.id);
+			for (const child of node.children) walk(child);
+		}
+	};
+	for (const root of buildForest(canvas)) walk(root);
+	return ids;
+}
+
+export function areAllBranchesCollapsed(canvas: Canvas): boolean {
+	const parents = getAllBranchParentIds(canvas);
+	if (parents.length === 0) return false;
+	const collapsed = getCollapsedBranches(canvas);
+	return parents.every(id => collapsed.has(id));
+}
+
+export function collapseAllBranches(canvas: Canvas, layoutEngine: LayoutEngine): void {
+	setCollapsedBranches(canvas, new Set(getAllBranchParentIds(canvas)));
+	layoutEngine.layout(canvas);
+	refreshBranchFoldUI(canvas, layoutEngine, () => true);
+	canvas.requestSave();
+	canvas.requestFrame();
+}
+
+export function expandAllBranches(canvas: Canvas, layoutEngine: LayoutEngine): void {
+	setCollapsedBranches(canvas, new Set());
+	layoutEngine.layout(canvas);
+	refreshBranchFoldUI(canvas, layoutEngine, () => true);
+	canvas.requestSave();
+	canvas.requestFrame();
+}
+
 export function registerBranchFoldHandler(
 	canvas: Canvas,
 	layoutEngine: LayoutEngine,
