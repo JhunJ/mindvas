@@ -2,6 +2,9 @@ import type { Canvas, CanvasNode } from "../types/canvas-internal";
 import { CanvasAPI } from "../canvas/canvas-api";
 import { buildForest, findTreeForNode, getDescendants } from "../mindmap/tree-model";
 
+const LONG_PRESS_MS = 500;
+const MOVE_TOLERANCE_PX = 12;
+
 /**
  * Zoom and focus utilities for mind map navigation.
  */
@@ -96,6 +99,92 @@ export class Navigation {
 
 		return () => {
 			canvas.wrapperEl?.removeEventListener("click", handler, true);
+		};
+	}
+
+	/**
+	 * Long-press on a node triggers zoom-to-branch (mobile substitute for Ctrl+click).
+	 */
+	registerTouchHandler(canvas: Canvas): (() => void) | null {
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		let startX = 0;
+		let startY = 0;
+		let targetNode: CanvasNode | null = null;
+		let longPressFired = false;
+
+		const clearTimer = () => {
+			if (timer !== null) {
+				clearTimeout(timer);
+				timer = null;
+			}
+		};
+
+		const findNodeFromTarget = (target: EventTarget | null): CanvasNode | null => {
+			const el = (target as HTMLElement | null)?.closest?.(".canvas-node") as HTMLElement | null;
+			if (!el) return null;
+			for (const node of canvas.nodes.values()) {
+				if (node.nodeEl === el) return node;
+			}
+			return null;
+		};
+
+		const onPointerDown = (e: PointerEvent) => {
+			if (e.pointerType === "mouse") return;
+			const target = e.target as HTMLElement;
+			if (target.closest(".mindvas-mobile-toolbar, .mindvas-mobile-fab, .mindvas-fold-chevron")) return;
+			if (target.closest(".canvas-node-connection-point")) return;
+
+			targetNode = findNodeFromTarget(e.target);
+			if (!targetNode) return;
+
+			longPressFired = false;
+			startX = e.clientX;
+			startY = e.clientY;
+			clearTimer();
+			timer = setTimeout(() => {
+				timer = null;
+				longPressFired = true;
+				if (targetNode) {
+					this.zoomToBranch(canvas, targetNode);
+					if (navigator.vibrate) navigator.vibrate(20);
+				}
+			}, LONG_PRESS_MS);
+		};
+
+		const onPointerMove = (e: PointerEvent) => {
+			if (!timer) return;
+			if (Math.hypot(e.clientX - startX, e.clientY - startY) > MOVE_TOLERANCE_PX) {
+				clearTimer();
+			}
+		};
+
+		const onPointerUp = () => {
+			clearTimer();
+			targetNode = null;
+		};
+
+		const onClick = (e: MouseEvent) => {
+			if (longPressFired) {
+				e.preventDefault();
+				e.stopPropagation();
+				longPressFired = false;
+			}
+		};
+
+		const wrapper = canvas.wrapperEl;
+		wrapper?.addEventListener("pointerdown", onPointerDown, true);
+		wrapper?.addEventListener("pointermove", onPointerMove, true);
+		wrapper?.addEventListener("pointerup", onPointerUp, true);
+		wrapper?.addEventListener("pointercancel", onPointerUp, true);
+		wrapper?.addEventListener("click", onClick, true);
+
+		return () => {
+			clearTimer();
+			wrapper?.removeEventListener("pointerdown", onPointerDown, true);
+			wrapper?.removeEventListener("pointermove", onPointerMove, true);
+			wrapper?.removeEventListener("pointerup", onPointerUp, true);
+			wrapper?.removeEventListener("pointercancel", onPointerUp, true);
+			wrapper?.removeEventListener("click", onClick, true);
 		};
 	}
 }

@@ -1,11 +1,12 @@
 {
 	"name": "mindvas",
-	"version": "0.3.0",
+	"version": "0.3.4",
 	"description": "Turn Canvas into a powerful mind mapping tool",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
-		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production && node scripts/install-to-vault.mjs",
+		"install-to-vault": "node scripts/install-to-vault.mjs"
 	},
 	"keywords": [],
 	"author": "",

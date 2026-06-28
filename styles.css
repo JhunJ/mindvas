@@ -53,6 +53,17 @@
 
 .mindvas-outline .tree-item-children {
 	overflow: hidden;
+	padding-inline-start: var(--nav-indentation-width, 24px);
+}
+
+.mindvas-outline .tree-item-children .tree-item-children {
+	padding-inline-start: var(--nav-indentation-width, 24px);
+}
+
+.mindvas-outline .mindvas-outline-item .tree-item-self {
+	display: flex;
+	align-items: center;
+	min-height: var(--touch-input-height, 28px);
 }
 
 .mindvas-outline .tree-item.is-collapsed > .tree-item-children {
@@ -135,9 +146,230 @@
 	display: none;
 }
 
+/* Hidden nodes/edges when a branch is collapsed */
+.mindvas-branch-hidden {
+	display: none !important;
+	visibility: hidden !important;
+	pointer-events: none !important;
+}
+
+.canvas-node.mindvas-branch-hidden,
+.canvas-edge.mindvas-branch-hidden,
+.canvas-edge-path.mindvas-branch-hidden,
+.canvas-node-connection-point.mindvas-branch-hidden {
+	display: none !important;
+	visibility: hidden !important;
+	pointer-events: none !important;
+}
+
+/* Branch fold chevron on parent-child connections (HeptaBase-style) */
+.mindvas-fold-chevron {
+	position: absolute;
+	top: 50%;
+	z-index: 10;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 50%;
+	background: var(--background-primary);
+	color: var(--text-muted);
+	cursor: pointer;
+	opacity: 0;
+	transform: translateY(-50%);
+	transition: opacity 120ms ease-in-out, color 120ms ease-in-out, border-color 120ms ease-in-out;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.canvas-node:hover > .mindvas-fold-chevron,
+.mindvas-fold-chevron.is-collapsed {
+	opacity: 1;
+}
+
+.mindvas-fold-chevron:hover {
+	color: var(--text-normal);
+	border-color: var(--interactive-accent);
+}
+
+.mindvas-fold-chevron.is-right {
+	right: -28px;
+}
+
+.mindvas-fold-chevron.is-left {
+	left: -28px;
+}
+
+.mindvas-fold-chevron::before {
+	content: "";
+	display: block;
+	width: 6px;
+	height: 6px;
+	border-right: 2px solid currentColor;
+	border-bottom: 2px solid currentColor;
+	transform: rotate(-45deg);
+}
+
+.mindvas-fold-chevron.is-left::before {
+	transform: rotate(135deg);
+}
+
+.mindvas-fold-chevron.is-collapsed.is-right::before {
+	transform: rotate(135deg);
+}
+
+.mindvas-fold-chevron.is-collapsed.is-left::before {
+	transform: rotate(-45deg);
+}
+
+.mindvas-fold-chevron[data-hidden-count]::after {
+	content: attr(data-hidden-count);
+	position: absolute;
+	top: -6px;
+	right: -6px;
+	min-width: 14px;
+	height: 14px;
+	padding: 0 3px;
+	border-radius: 7px;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: 9px;
+	font-weight: var(--font-semibold);
+	line-height: 14px;
+	text-align: center;
+}
+
 .mindvas-outline-empty {
 	padding: 12px 10px;
 	color: var(--text-muted);
 	font-size: var(--font-ui-small);
 	font-style: italic;
+}
+
+/* ── Mobile / touch device optimizations ── */
+
+.mindvas-mobile-toolbar {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 50;
+	display: flex;
+	gap: 2px;
+	padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+	overflow-x: auto;
+	overflow-y: hidden;
+	-webkit-overflow-scrolling: touch;
+	background: var(--background-primary);
+	border-top: 1px solid var(--background-modifier-border);
+	box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.mindvas-mobile-toolbar.is-hidden {
+	display: none;
+}
+
+.mindvas-mobile-toolbar-btn {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 44px;
+	height: 44px;
+	border-radius: var(--radius-m);
+	color: var(--text-muted);
+}
+
+.mindvas-mobile-toolbar-btn:active {
+	color: var(--interactive-accent);
+	background: var(--background-modifier-hover);
+}
+
+.mindvas-mobile-fab {
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	z-index: 51;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 48px;
+	height: 48px;
+	padding: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 50%;
+	background: var(--background-primary);
+	color: var(--text-muted);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.mindvas-mobile-fab.is-active {
+	color: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+}
+
+/* Always show touch targets — no hover on mobile */
+body.mindvas-mobile .mindvas-outline .mindvas-outline-drag-handle,
+body.mindvas-mobile .canvas-node > .mindvas-fold-chevron {
+	opacity: 1;
+}
+
+body.mindvas-mobile .mindvas-fold-chevron {
+	width: 32px;
+	height: 32px;
+}
+
+body.mindvas-mobile .mindvas-fold-chevron.is-right {
+	right: -36px;
+}
+
+body.mindvas-mobile .mindvas-fold-chevron.is-left {
+	left: -36px;
+}
+
+body.mindvas-mobile .mindvas-outline .mindvas-outline-item .tree-item-self {
+	min-height: 44px;
+}
+
+body.mindvas-tablet .mindvas-fold-chevron {
+	opacity: 1;
+	width: 32px;
+	height: 32px;
+}
+
+body.mindvas-mobile .mindvas-outline .mindvas-outline-drag-handle {
+	opacity: 0.5;
+	padding: 8px;
+}
+
+body.mindvas-mobile .mindvas-outline .collapse-icon {
+	opacity: 1;
+	min-width: 24px;
+	min-height: 24px;
+}
+
+/* Tablet: leave room for right sidebar outline — no bottom toolbar */
+body.mindvas-tablet .mindvas-mobile-toolbar {
+	display: none;
+}
+
+/* Fallback for any touch device without hover */
+@media (hover: none) {
+	.mindvas-outline .mindvas-outline-item:hover .mindvas-outline-drag-handle,
+	.mindvas-outline .mindvas-outline-drag-handle {
+		opacity: 0.5;
+	}
+
+	.canvas-node:hover > .mindvas-fold-chevron,
+	.mindvas-fold-chevron.is-collapsed,
+	.mindvas-fold-chevron {
+		opacity: 1;
+	}
+
+	.mindvas-fold-chevron {
+		width: 32px;
+		height: 32px;
+	}
 }

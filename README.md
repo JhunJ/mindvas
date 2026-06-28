@@ -132,4 +132,4 @@ If you find this plugin useful, you can support me [here](https://buymeacoffee.c
 
 ***
 
-> \[!NOTE] This plugin is desktop-only (Canvas is a desktop feature). It does not make network requests, collect telemetry, or access files outside your vault.
+> \[!NOTE] Mindvas supports desktop, tablet (Galaxy Tab, iPad), and phone. On mobile, use the bottom toolbar and node long-press/context menu for actions that normally use keyboard shortcuts. It does not make network requests, collect telemetry, or access files outside your vault.

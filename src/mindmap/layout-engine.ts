@@ -1,5 +1,6 @@
 import type { Canvas } from "../types/canvas-internal";
 import { buildForest, findTreeForNode, getDescendants, TreeNode, BranchDirection } from "./tree-model";
+import { getCollapsedBranches } from "./branch-fold";
 import { updateAllEdgeSides } from "../canvas/edge-updater";
 
 export interface LayoutConfig {
@@ -60,6 +61,7 @@ export class LayoutEngine {
 		const forest = buildForest(canvas);
 		if (forest.length === 0) return;
 
+		const collapsed = getCollapsedBranches(canvas);
 		const positions = new Map<string, NodePosition>();
 
 		for (const root of forest) {
@@ -72,8 +74,8 @@ export class LayoutEngine {
 			const leftChildren = root.children.filter(c => c.direction === "left");
 
 			// Layout each side independently
-			this.layoutGroup(root, rightChildren, "right", rootX, rootY, positions);
-			this.layoutGroup(root, leftChildren, "left", rootX, rootY, positions);
+			this.layoutGroup(root, rightChildren, "right", rootX, rootY, positions, collapsed);
+			this.layoutGroup(root, leftChildren, "left", rootX, rootY, positions, collapsed);
 		}
 
 		this.applyPositions(canvas, positions);
@@ -92,6 +94,7 @@ export class LayoutEngine {
 		const parentTreeNode = findTreeForNode(forest, parentNodeId);
 		if (!parentTreeNode || parentTreeNode.children.length === 0) return;
 
+		const collapsed = getCollapsedBranches(canvas);
 		const positions = new Map<string, NodePosition>();
 
 		if (!parentTreeNode.parent) {
@@ -100,8 +103,8 @@ export class LayoutEngine {
 			const leftChildren = parentTreeNode.children.filter(c => c.direction === "left");
 			const rootX = parentTreeNode.canvasNode.x;
 			const rootY = parentTreeNode.canvasNode.y;
-			this.layoutGroup(parentTreeNode, rightChildren, "right", rootX, rootY, positions);
-			this.layoutGroup(parentTreeNode, leftChildren, "left", rootX, rootY, positions);
+			this.layoutGroup(parentTreeNode, rightChildren, "right", rootX, rootY, positions, collapsed);
+			this.layoutGroup(parentTreeNode, leftChildren, "left", rootX, rootY, positions, collapsed);
 		} else {
 			// Non-root: partition children into left/right based on actual positions
 			const parentCx = parentTreeNode.canvasNode.x + parentTreeNode.canvasNode.width / 2;
@@ -115,8 +118,8 @@ export class LayoutEngine {
 			});
 			const px = parentTreeNode.canvasNode.x;
 			const py = parentTreeNode.canvasNode.y;
-			this.layoutGroup(parentTreeNode, rightChildren, "right", px, py, positions);
-			this.layoutGroup(parentTreeNode, leftChildren, "left", px, py, positions);
+			this.layoutGroup(parentTreeNode, rightChildren, "right", px, py, positions, collapsed);
+			this.layoutGroup(parentTreeNode, leftChildren, "left", px, py, positions, collapsed);
 		}
 
 		this.applyPositions(canvas, positions);
@@ -133,7 +136,8 @@ export class LayoutEngine {
 		direction: BranchDirection,
 		rootX: number,
 		rootY: number,
-		positions: Map<string, NodePosition>
+		positions: Map<string, NodePosition>,
+		collapsed: Set<string>
 	): void {
 		if (children.length === 0) return;
 
@@ -151,7 +155,7 @@ export class LayoutEngine {
 
 			const tempPositions = new Map<string, NodePosition>();
 			const contour = this.layoutSubtree(
-				child, childX, 0, 0, direction, tempPositions
+				child, childX, 0, 0, direction, tempPositions, collapsed
 			);
 			subtrees.push({ positions: tempPositions, contour });
 		}
@@ -185,7 +189,8 @@ export class LayoutEngine {
 		nodeY: number,
 		depth: number,
 		direction: BranchDirection,
-		positions: Map<string, NodePosition>
+		positions: Map<string, NodePosition>,
+		collapsed: Set<string>
 	): Contour {
 		const nodeH = node.canvasNode.height || this.config.nodeHeight;
 		const nodeW = node.canvasNode.width || this.config.nodeWidth;
@@ -195,7 +200,9 @@ export class LayoutEngine {
 		const contour: Contour = new Map();
 		contour.set(depth, { top: nodeY, bottom: nodeY + nodeH });
 
-		if (node.children.length === 0) return contour;
+		if (node.children.length === 0 || collapsed.has(node.canvasNode.id)) {
+			return contour;
+		}
 
 		// Layout each child subtree independently at y=0
 		const childSubtrees: SubtreeInfo[] = [];
@@ -207,7 +214,7 @@ export class LayoutEngine {
 
 			const tempPositions = new Map<string, NodePosition>();
 			const childContour = this.layoutSubtree(
-				child, childX, 0, depth + 1, direction, tempPositions
+				child, childX, 0, depth + 1, direction, tempPositions, collapsed
 			);
 			childSubtrees.push({ positions: tempPositions, contour: childContour });
 		}

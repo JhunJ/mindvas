@@ -1,6 +1,8 @@
 import { ItemView, WorkspaceLeaf, setIcon, Menu, Notice, SearchComponent } from "obsidian";
 import type { Canvas, CanvasNode, CanvasView as CanvasViewType } from "../types/canvas-internal";
 import { buildForest, TreeNode, getDescendants, getGroupIds } from "../mindmap/tree-model";
+import { getCollapsedBranches } from "../mindmap/branch-fold";
+import { isMobileApp } from "./mobile-utils";
 
 export const OUTLINE_VIEW_TYPE = "mindvas-outline";
 
@@ -31,8 +33,11 @@ export class OutlineView extends ItemView {
 	private collapseBtnEl: HTMLElement | null = null;
 	private searchContainerEl: HTMLElement | null = null;
 	private searchComponent: SearchComponent | null = null;
+	private selectionMode = false;
+	private selectModeBtnEl: HTMLElement | null = null;
 	zoomPadding = 0;
 	onForestLayout: ((canvas: Canvas, groupId: string) => void) | null = null;
+	onToggleBranchFold: ((nodeId: string) => void) | null = null;
 
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
@@ -108,6 +113,20 @@ export class OutlineView extends ItemView {
 			}
 		});
 
+		// Multi-select toggle for mobile (replaces Ctrl+click)
+		if (isMobileApp()) {
+			this.selectModeBtnEl = navButtons.createDiv({
+				cls: "clickable-icon nav-action-button",
+				attr: { "aria-label": "Select roots" },
+			});
+			setIcon(this.selectModeBtnEl, "check-square");
+			this.selectModeBtnEl.addEventListener("click", () => {
+				this.selectionMode = !this.selectionMode;
+				this.selectModeBtnEl?.toggleClass("is-active", this.selectionMode);
+				if (!this.selectionMode) this.clearSelection();
+			});
+		}
+
 		return Promise.resolve();
 	}
 
@@ -120,6 +139,8 @@ export class OutlineView extends ItemView {
 		this.collapseBtnEl = null;
 		this.searchContainerEl = null;
 		this.searchComponent = null;
+		this.selectModeBtnEl = null;
+		this.selectionMode = false;
 		return Promise.resolve();
 	}
 
@@ -247,61 +268,90 @@ export class OutlineView extends ItemView {
 	private applyFilter(): void {
 		const q = this.searchQuery.toLowerCase().trim();
 
-		// Filter ungrouped roots
-		const ungroupedZone = this.contentEl.querySelector(".mindvas-outline-ungrouped-zone");
-		if (ungroupedZone) {
-			for (const item of Array.from(ungroupedZone.querySelectorAll(":scope > .tree-item"))) {
-				const text = item.querySelector(".tree-item-inner")?.textContent?.toLowerCase() ?? "";
-				(item as HTMLElement).toggleClass("is-hidden", q !== "" && !text.includes(q));
-			}
+		for (const item of Array.from(this.contentEl.querySelectorAll(".mindvas-outline-item"))) {
+			const treeItem = item.closest(".tree-item") as HTMLElement | null;
+			if (!treeItem) continue;
+			const text = item.querySelector(".tree-item-inner")?.textContent?.toLowerCase() ?? "";
+			treeItem.toggleClass("is-hidden", q !== "" && !text.includes(q));
 		}
 
-		// Filter groups: show if group label or any child root matches
+		// Hide group headers when no visible descendants
 		for (const groupItem of Array.from(this.contentEl.querySelectorAll(":scope > .tree-item"))) {
 			const el = groupItem as HTMLElement;
 			const groupHeader = el.querySelector(".mindvas-outline-group .tree-item-inner");
-			if (!groupHeader) continue; // not a group tree-item
+			if (!groupHeader) continue;
 
 			const label = groupHeader.querySelector("span")?.textContent?.toLowerCase() ?? "";
 			const groupLabelMatches = q === "" || label.includes(q);
-
-			let anyChildVisible = false;
-			for (const child of Array.from(el.querySelectorAll(".tree-item-children > .tree-item"))) {
-				const childText = child.querySelector(".tree-item-inner")?.textContent?.toLowerCase() ?? "";
-				const childMatches = q === "" || childText.includes(q);
-				(child as HTMLElement).toggleClass("is-hidden", !childMatches && !groupLabelMatches);
-				if (childMatches || groupLabelMatches) anyChildVisible = true;
-			}
+			const anyChildVisible = Array.from(
+				el.querySelectorAll(".tree-item-children .tree-item")
+			).some((child) => !(child as HTMLElement).hasClass("is-hidden"));
 
 			el.toggleClass("is-hidden", q !== "" && !groupLabelMatches && !anyChildVisible);
 		}
 	}
 
 	/**
-	 * Render a single root node as a tree-item.
+	 * Render a node and its descendants as a nested tree (full hierarchy with indent).
 	 */
-	private renderRootItem(
+	private renderTreeNode(
 		container: HTMLElement,
-		root: TreeNode,
+		node: TreeNode,
 		canvas: Canvas,
-		isUngrouped: boolean,
-		groupId?: string
+		opts: { isRoot: boolean; isUngrouped: boolean; groupId?: string }
 	): void {
-		const treeItem = container.createDiv({ cls: "tree-item" });
+		const hasChildren = node.children.length > 0;
+		const branchCollapsed = getCollapsedBranches(canvas).has(node.canvasNode.id);
+		const treeItem = container.createDiv({
+			cls: "tree-item" + (hasChildren && branchCollapsed ? " is-collapsed" : ""),
+		});
 		const self = treeItem.createDiv({
 			cls: "tree-item-self is-clickable mindvas-outline-item",
 		});
 
-		// Drag handle (before text content)
-		const dragHandle = self.createDiv({ cls: "tree-item-icon mindvas-outline-drag-handle" });
-		setIcon(dragHandle, "grip-vertical");
+		if (hasChildren) {
+			const collapseIcon = self.createDiv({ cls: "tree-item-icon collapse-icon" });
+			setIcon(collapseIcon, "right-triangle");
+			collapseIcon.addEventListener("click", (e) => {
+				e.stopPropagation();
+				this.onToggleBranchFold?.(node.canvasNode.id);
+			});
+		} else {
+			self.createDiv({ cls: "tree-item-icon" });
+		}
+
+		if (opts.isRoot) {
+			const dragHandle = self.createDiv({ cls: "tree-item-icon mindvas-outline-drag-handle" });
+			setIcon(dragHandle, "grip-vertical");
+			this.attachRootDragHandlers(self, dragHandle, node, opts.groupId ?? null);
+		}
 
 		self.createDiv({
 			cls: "tree-item-inner",
-			text: getRootTitle(root.canvasNode.text),
+			text: getRootTitle(node.canvasNode.text),
 		});
 
-		// Handle-based drag: only start drag when pointerdown on grip icon
+		this.allItemEls.set(node.canvasNode.id, self);
+		this.attachNodeClickHandlers(self, node, canvas, opts);
+
+		if (hasChildren && !branchCollapsed) {
+			const childrenContainer = treeItem.createDiv({ cls: "tree-item-children" });
+			for (const child of node.children) {
+				this.renderTreeNode(childrenContainer, child, canvas, {
+					isRoot: false,
+					isUngrouped: opts.isUngrouped,
+					groupId: opts.groupId,
+				});
+			}
+		}
+	}
+
+	private attachRootDragHandlers(
+		self: HTMLElement,
+		dragHandle: HTMLElement,
+		root: TreeNode,
+		groupId: string | null
+	): void {
 		let dragAllowed = false;
 		dragHandle.addEventListener("pointerdown", () => { dragAllowed = true; });
 		self.addEventListener("pointerup", () => { dragAllowed = false; });
@@ -311,7 +361,7 @@ export class OutlineView extends ItemView {
 			if (!dragAllowed) { e.preventDefault(); return; }
 			dragAllowed = false;
 			this.draggedRoot = root;
-			this.dragSourceGroupId = groupId ?? null;
+			this.dragSourceGroupId = groupId;
 			self.addClass("is-dragging");
 			e.dataTransfer?.setData("text/plain", root.canvasNode.id);
 		});
@@ -323,32 +373,39 @@ export class OutlineView extends ItemView {
 				el.removeClass("is-drag-over");
 			}
 		});
+	}
 
-		this.allItemEls.set(root.canvasNode.id, self);
-
+	private attachNodeClickHandlers(
+		self: HTMLElement,
+		node: TreeNode,
+		canvas: Canvas,
+		opts: { isRoot: boolean; isUngrouped: boolean; groupId?: string }
+	): void {
 		self.addEventListener("click", (e) => {
-			if (isUngrouped && e.ctrlKey) {
-				// Toggle multi-selection
-				if (this.selectedRoots.has(root)) {
-					this.selectedRoots.delete(root);
-					self.removeClass("is-selected");
-				} else {
-					this.selectedRoots.add(root);
-					self.addClass("is-selected");
+			if (opts.isRoot && opts.isUngrouped) {
+				const multiSelect = e.ctrlKey || (isMobileApp() && this.selectionMode);
+				if (multiSelect) {
+					if (this.selectedRoots.has(node)) {
+						this.selectedRoots.delete(node);
+						self.removeClass("is-selected");
+					} else {
+						this.selectedRoots.add(node);
+						self.addClass("is-selected");
+					}
+					return;
 				}
-				return;
 			}
 
 			this.clearSelection();
-			this.setActiveItem(root.canvasNode.id);
+			this.setActiveItem(node.canvasNode.id);
 			if (this.canvasLeaf) {
 				this.app.workspace.setActiveLeaf(this.canvasLeaf, { focus: true });
 			}
-			const node = root.canvasNode;
-			canvas.selectOnly(node);
+			const cn = node.canvasNode;
+			canvas.selectOnly(cn);
 			const pad = this.zoomPadding;
-			const cx = node.x + node.width / 2;
-			const cy = node.y + node.height / 2;
+			const cx = cn.x + cn.width / 2;
+			const cy = cn.y + cn.height / 2;
 			canvas.zoomToBbox({
 				minX: cx - pad,
 				minY: cy - pad,
@@ -365,14 +422,23 @@ export class OutlineView extends ItemView {
 					.setIcon("link")
 					.onClick(() => {
 						const canvasPath = canvas.view.file.path;
-						void navigator.clipboard.writeText(`obsidian://mindvas-navigate?canvas=${encodeURIComponent(canvasPath)}&id=${root.canvasNode.id}`);
+						void navigator.clipboard.writeText(
+							`obsidian://mindvas-navigate?canvas=${encodeURIComponent(canvasPath)}&id=${node.canvasNode.id}`
+						);
 						new Notice("Node link copied");
 					});
 			});
-			if (isUngrouped) {
-				if (!this.selectedRoots.has(root)) {
+			if (node.children.length > 0) {
+				menu.addItem((item) => {
+					item.setTitle(branchCollapsedLabel(canvas, node.canvasNode.id))
+						.setIcon("chevrons-down-up")
+						.onClick(() => this.onToggleBranchFold?.(node.canvasNode.id));
+				});
+			}
+			if (opts.isRoot && opts.isUngrouped) {
+				if (!this.selectedRoots.has(node)) {
 					this.clearSelection();
-					this.selectedRoots.add(root);
+					this.selectedRoots.add(node);
 					self.addClass("is-selected");
 				}
 				const count = this.selectedRoots.size;
@@ -382,8 +448,37 @@ export class OutlineView extends ItemView {
 						.onClick(() => this.createGroupFromSelection());
 				});
 			}
+			if (opts.isRoot) {
+				const groups = this.getGroupList(canvas);
+				for (const g of groups) {
+					if (g.node.id === opts.groupId) continue;
+					menu.addItem((item) => {
+						item.setTitle(`Move to "${g.label}"`)
+							.setIcon("folder-input")
+							.onClick(() => this.moveTreeToGroup(node, g.node.id, opts.groupId ?? null));
+					});
+				}
+				if (opts.groupId) {
+					menu.addItem((item) => {
+						item.setTitle("Remove from group")
+							.setIcon("folder-minus")
+							.onClick(() => this.ungroupTree(node, opts.groupId!));
+					});
+				}
+			}
 			menu.showAtMouseEvent(e);
 		});
+	}
+
+	/** @deprecated use renderTreeNode */
+	private renderRootItem(
+		container: HTMLElement,
+		root: TreeNode,
+		canvas: Canvas,
+		isUngrouped: boolean,
+		groupId?: string
+	): void {
+		this.renderTreeNode(container, root, canvas, { isRoot: true, isUngrouped, groupId });
 	}
 
 	private clearSelection(): void {
@@ -391,6 +486,27 @@ export class OutlineView extends ItemView {
 			this.allItemEls.get(root.canvasNode.id)?.removeClass("is-selected");
 		}
 		this.selectedRoots.clear();
+	}
+
+	private getGroupList(canvas: Canvas): GroupInfo[] {
+		const groups: GroupInfo[] = [];
+		for (const nd of canvas.getData().nodes) {
+			if (nd.type !== "group") continue;
+			const node = canvas.nodes.get(nd.id);
+			if (!node) continue;
+			groups.push({
+				node,
+				label: (nd.label || "").trim() || "Untitled Group",
+				area: node.width * node.height,
+				roots: [],
+			});
+		}
+		groups.sort((a, b) => {
+			const dy = a.node.y - b.node.y;
+			if (Math.abs(dy) > 50) return dy;
+			return a.node.x - b.node.x;
+		});
+		return groups;
 	}
 
 	private setActiveItem(nodeId: string): void {
@@ -718,4 +834,8 @@ export function getRootTitle(text: string): string {
 		.replace(/^#+\s*/, "")
 		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
 		|| "Untitled";
+}
+
+function branchCollapsedLabel(canvas: Canvas, nodeId: string): string {
+	return getCollapsedBranches(canvas).has(nodeId) ? "Expand branch" : "Collapse branch";
 }

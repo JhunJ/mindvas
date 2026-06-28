@@ -60,6 +60,7 @@ export interface CanvasEdge {
 	canvas: Canvas;
 	lineEl?: HTMLElement;
 	lineGroupEl?: HTMLElement;
+	lineEndGroupEl?: HTMLElement;
 	path?: { display: SVGPathElement };
 
 	setColor(color: string): void;
@@ -133,6 +134,8 @@ export interface CanvasFileData {
 	nodes: CanvasNodeFileData[];
 	edges: CanvasEdgeFileData[];
 	mindmap?: boolean;
+	/** Parent node IDs whose child branches are collapsed. */
+	collapsedBranches?: string[];
 }
 
 export interface CanvasNodeFileData {

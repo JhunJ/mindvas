@@ -1,4 +1,4 @@
-import { Plugin, Notice, TFile, TFolder, Menu, debounce, WorkspaceLeaf, setIcon, ItemView } from "obsidian";
+import { Plugin, Notice, TFile, TFolder, Menu, debounce, WorkspaceLeaf, setIcon, ItemView, Platform } from "obsidian";
 import type { Canvas, CanvasNode, CanvasEdge, CreateNodeOptions } from "./types/canvas-internal";
 import { CanvasAPI } from "./canvas/canvas-api";
 import { NodeOperations } from "./mindmap/node-operations";
@@ -19,6 +19,9 @@ import { registerAutoResize, AutoResizeHandle, getEditorElements } from "./ui/au
 import { OutlineView, OUTLINE_VIEW_TYPE } from "./ui/outline-view";
 import { freemindToCanvas } from "./import/freemind-import";
 import { getGroupIds, buildForest, findTreeForNode } from "./mindmap/tree-model";
+import { registerBranchFoldHandler, refreshBranchFoldUI, toggleBranchFold } from "./mindmap/branch-fold";
+import { MobileToolbar } from "./ui/mobile-toolbar";
+import { isMobileApp, isPhone, isTablet, syncMobileBodyClass, safeRun, ensureOutlineLeaf, expandRightSidebar } from "./ui/mobile-utils";
 
 export default class CanvasMindMapPlugin extends Plugin {
 	settings: MindMapSettings = DEFAULT_SETTINGS;
@@ -60,11 +63,27 @@ export default class CanvasMindMapPlugin extends Plugin {
 	private navSkipTracking = false;
 	private lastNavCanvas: Canvas | null = null;
 	private cleanupNavHandler: (() => void) | null = null;
+	private cleanupBranchFoldHandler: (() => void) | null = null;
+	private mobileToolbar: MobileToolbar | null = null;
+	private cleanupTouchNavHandler: (() => void) | null = null;
 
 	async onload(): Promise<void> {
-		await this.loadSettings();
+		try {
+			await this.loadSettings();
+			syncMobileBodyClass();
+			this.initServices();
+			this.registerCommands();
+			this.registerWorkspaceHandlers();
+			this.addSettingTab(new MindMapSettingTab(this.app, this));
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.error("Mindvas failed to load:", err);
+			new Notice(`Mindvas 로드 실패: ${msg}`);
+			throw err;
+		}
+	}
 
-		// Initialize core services
+	private initServices(): void {
 		this.canvasApi = new CanvasAPI(this.app);
 		this.nodeOps = new NodeOperations(this.canvasApi, {
 			nodeWidth: this.settings.defaultNodeWidth,
@@ -80,6 +99,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 		});
 		this.branchColors = new BranchColors(this.canvasApi);
 		this.navigation = new Navigation(this.canvasApi);
+		this.mobileToolbar = new MobileToolbar(this, (canvas) => this.isMindmapCanvas(canvas));
 
 		// Register keyboard shortcuts
 		this.keyboardHandler = new KeyboardHandler(
@@ -94,8 +114,9 @@ export default class CanvasMindMapPlugin extends Plugin {
 		);
 		this.keyboardHandler.zoomPadding = this.settings.navigationZoomPadding;
 		this.keyboardHandler.register();
+	}
 
-		// Command: Re-layout entire mind map
+	private registerCommands(): void {
 		this.addCommand({
 			id: "mindmap-relayout",
 			name: "Re-layout mind map",
@@ -105,6 +126,25 @@ export default class CanvasMindMapPlugin extends Plugin {
 				if (!this.isMindmapCanvas(canvas)) return false;
 				if (checking) return true;
 				this.layoutEngine.layout(canvas);
+				this.updateGroupBounds(canvas);
+				refreshBranchFoldUI(canvas, this.layoutEngine, () => this.isMindmapCanvas(canvas));
+			},
+		});
+
+		// Command: Toggle branch fold on selected node
+		this.addCommand({
+			id: "mindmap-toggle-branch-fold",
+			name: "Toggle branch fold",
+			checkCallback: (checking: boolean) => {
+				const canvas = this.canvasApi.getActiveCanvas();
+				if (!canvas) return false;
+				if (!this.isMindmapCanvas(canvas)) return false;
+				const node = this.canvasApi.getSelectedNode(canvas);
+				if (!node) return false;
+				const children = this.canvasApi.getChildNodes(canvas, node);
+				if (children.length === 0) return false;
+				if (checking) return true;
+				toggleBranchFold(canvas, this.layoutEngine, node.id);
 				this.updateGroupBounds(canvas);
 			},
 		});
@@ -237,95 +277,17 @@ export default class CanvasMindMapPlugin extends Plugin {
 			},
 		});
 
-		// Watch for canvas view activation to set up UI
-		this.registerEvent(
-			this.app.workspace.on("active-leaf-change", (leaf) => {
-				this.onLeafChange(leaf);
-			})
-		);
-
-		// Register outline sidebar view
-		this.registerView(OUTLINE_VIEW_TYPE, (leaf) => new OutlineView(leaf));
-
-		// Show outline if a mindmap canvas is already open on startup
-		this.app.workspace.onLayoutReady(() => {
-			const view = this.app.workspace.getActiveViewOfType(ItemView);
-			if (view) this.onLeafChange(view.leaf);
-		});
-
-		// Import FreeMind: right-click context menu on folders
-		this.registerEvent(
-			this.app.workspace.on("file-menu", (menu, file) => {
-				// Show on folders only
-				if (!(file instanceof TFolder)) return;
-
-				menu.addItem((item) => {
-					item.setTitle("Import mind map (.mm) to canvas")
-						.setIcon("file-input")
-						.onClick(() => this.importFreeMindFile(file.path));
-				});
-			})
-		);
-
-		// Node referencing: "Copy node link" in canvas node context menu
-		this.registerEvent(
-			this.app.workspace.on("canvas:node-menu", (menu: Menu, node: CanvasNode) => {
+		// Command: Open Map outline (especially useful on mobile)
+		this.addCommand({
+			id: "mindmap-open-outline",
+			name: "Open Map outline",
+			checkCallback: (checking: boolean) => {
 				const canvas = this.canvasApi.getActiveCanvas();
-
-				menu.addItem((item) => {
-					item.setTitle("Copy node link")
-						.setIcon("link")
-						.onClick(() => {
-							const canvasPath = node.canvas.view.file.path;
-							void navigator.clipboard.writeText(`obsidian://mindvas-navigate?canvas=${encodeURIComponent(canvasPath)}&id=${node.id}`);
-							new Notice("Node link copied");
-						});
-				});
-
-				if (canvas) {
-					const groupIds = getGroupIds(canvas);
-					if (groupIds.has(node.id)) {
-						menu.addItem((item) => {
-							item.setTitle("Layout forest")
-								.setIcon("layout-grid")
-								.onClick(() => {
-									this.layoutEngine.layoutForest(canvas, node.id);
-									this.updateGroupBounds(canvas);
-								});
-						});
-					}
-				}
-			})
-		);
-
-		// Node referencing: handle obsidian://mindvas-navigate protocol
-		this.registerObsidianProtocolHandler("mindvas-navigate", async (params) => {
-			const nodeId = params.id;
-			if (!nodeId) return;
-
-			const canvasPath = params.canvas;
-			if (canvasPath) {
-				const file = this.app.vault.getAbstractFileByPath(canvasPath);
-				if (file && file instanceof TFile) {
-					const leaf = this.app.workspace.getLeaf();
-					await leaf.openFile(file);
-					await new Promise(resolve => setTimeout(resolve, 200));
-				}
-			}
-
-			const canvas = this.canvasApi.getActiveCanvas() ?? this.canvasApi.getAnyCanvas();
-			if (!canvas) {
-				new Notice("Canvas not found");
-				return;
-			}
-
-			const node = canvas.nodes.get(nodeId);
-			if (!node) {
-				new Notice("Target node not found");
-				return;
-			}
-
-			this.canvasApi.selectAndZoom(canvas, node, this.settings.navigationZoomPadding);
+				if (!canvas) return false;
+				if (!this.isMindmapCanvas(canvas)) return false;
+				if (checking) return true;
+				this.showOutline(canvas, true);
+			},
 		});
 
 		// Navigation history: back/forward commands
@@ -356,10 +318,139 @@ export default class CanvasMindMapPlugin extends Plugin {
 			name: "Import mind map (.mm) file to canvas",
 			callback: () => this.importFreeMindFile(),
 		});
+	}
 
-		// Settings tab
-		this.addSettingTab(new MindMapSettingTab(this.app, this));
+	private registerWorkspaceHandlers(): void {
+		// Watch for canvas view activation to set up UI
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				this.onLeafChange(leaf);
+			})
+		);
 
+		// Register outline sidebar view
+		this.registerView(OUTLINE_VIEW_TYPE, (leaf) => new OutlineView(leaf));
+
+		// Show outline if a mindmap canvas is already open on startup
+		this.app.workspace.onLayoutReady(() => {
+			try {
+				const view = this.app.workspace.getActiveViewOfType(ItemView);
+				if (view) this.onLeafChange(view.leaf);
+			} catch (err) {
+				console.error("Mindvas: layout ready setup failed", err);
+			}
+		});
+
+		// Import FreeMind: right-click context menu on folders
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, file) => {
+				// Show on folders only
+				if (!(file instanceof TFolder)) return;
+
+				menu.addItem((item) => {
+					item.setTitle("Import mind map (.mm) to canvas")
+						.setIcon("file-input")
+						.onClick(() => this.importFreeMindFile(file.path));
+				});
+			})
+		);
+
+		safeRun("canvas:node-menu registration", () => {
+			this.registerEvent(
+				this.app.workspace.on("canvas:node-menu", (menu: Menu, node: CanvasNode) => {
+					const canvas = this.canvasApi.getActiveCanvas();
+					const mindmap = canvas && this.isMindmapCanvas(canvas);
+
+					menu.addItem((item) => {
+						item.setTitle("Copy node link")
+							.setIcon("link")
+							.onClick(() => {
+								const canvasPath = node.canvas.view.file.path;
+								void navigator.clipboard.writeText(`obsidian://mindvas-navigate?canvas=${encodeURIComponent(canvasPath)}&id=${node.id}`);
+								new Notice("Node link copied");
+							});
+					});
+
+					if (mindmap && canvas) {
+						menu.addItem((item) => {
+							item.setTitle("Zoom to branch")
+								.setIcon("maximize")
+								.onClick(() => this.navigation.zoomToBranch(canvas, node));
+						});
+						menu.addItem((item) => {
+							item.setTitle("Select subtree")
+								.setIcon("layers")
+								.onClick(() => this.navigation.selectTree(canvas, node));
+						});
+						const parent = this.canvasApi.getParentNode(canvas, node);
+						if (parent) {
+							menu.addItem((item) => {
+								item.setTitle("Insert node between parent and child")
+									.setIcon("git-branch-plus")
+									.onClick(() => this.insertNodeBetweenParentAndChild(canvas, parent, node));
+							});
+						}
+					}
+
+					if (canvas) {
+						const groupIds = getGroupIds(canvas);
+						if (groupIds.has(node.id)) {
+							menu.addItem((item) => {
+								item.setTitle("Layout forest")
+									.setIcon("layout-grid")
+									.onClick(() => {
+										this.layoutEngine.layoutForest(canvas, node.id);
+										this.updateGroupBounds(canvas);
+									});
+							});
+						}
+					}
+				})
+			);
+		});
+
+		this.registerProtocolHandler();
+	}
+
+	private registerProtocolHandler(): void {
+		const register = () => {
+			safeRun("protocol handler registration", () => {
+				this.registerObsidianProtocolHandler("mindvas-navigate", async (params) => {
+					const nodeId = params.id;
+					if (!nodeId) return;
+
+					const canvasPath = params.canvas;
+					if (canvasPath) {
+						const file = this.app.vault.getAbstractFileByPath(canvasPath);
+						if (file && file instanceof TFile) {
+							const leaf = this.app.workspace.getLeaf();
+							await leaf.openFile(file);
+							await new Promise(resolve => setTimeout(resolve, 200));
+						}
+					}
+
+					const canvas = this.canvasApi.getActiveCanvas() ?? this.canvasApi.getAnyCanvas();
+					if (!canvas) {
+						new Notice("Canvas not found");
+						return;
+					}
+
+					const node = canvas.nodes.get(nodeId);
+					if (!node) {
+						new Notice("Target node not found");
+						return;
+					}
+
+					this.canvasApi.selectAndZoom(canvas, node, this.settings.navigationZoomPadding);
+				});
+			});
+		};
+
+		if (Platform.isMobileApp) {
+			window.setTimeout(register, 0);
+		} else {
+			register();
+		}
 	}
 
 	private pushNavHistory(nodeId: string): void {
@@ -432,10 +523,19 @@ export default class CanvasMindMapPlugin extends Plugin {
 			this.cleanupNavHandler();
 			this.cleanupNavHandler = null;
 		}
+		if (this.cleanupBranchFoldHandler) {
+			this.cleanupBranchFoldHandler();
+			this.cleanupBranchFoldHandler = null;
+		}
+		if (this.cleanupTouchNavHandler) {
+			this.cleanupTouchNavHandler();
+			this.cleanupTouchNavHandler = null;
+		}
 		if (this.autoResizeHandle) {
 			this.autoResizeHandle.cleanup();
 			this.autoResizeHandle = null;
 		}
+		this.mobileToolbar?.unmount();
 		this.lastNavCanvas = null;
 		if (this.toggleBtnEl) {
 			this.toggleBtnEl.remove();
@@ -447,10 +547,15 @@ export default class CanvasMindMapPlugin extends Plugin {
 	 * Called when the active leaf changes — set up canvas-specific UI.
 	 */
 	private onLeafChange(leaf: WorkspaceLeaf | null): void {
-		// Don't clean up when focus moves to sidebar panels
+		// Don't clean up when focus moves to the outline panel
 		if (leaf?.view?.getViewType() === OUTLINE_VIEW_TYPE) return;
-		const root = leaf?.getRoot();
-		if (root && root !== this.app.workspace.rootSplit) return;
+
+		const isCanvas = leaf?.view?.getViewType() === "canvas";
+		// On mobile/tablet the canvas lives inside a drawer, not rootSplit — still set up UI.
+		if (!isCanvas) {
+			const root = leaf?.getRoot();
+			if (root && root !== this.app.workspace.rootSplit) return;
+		}
 
 		// Cancel pending async operations and unwrap previous canvas
 		this.cancelPendingAsync();
@@ -489,10 +594,19 @@ export default class CanvasMindMapPlugin extends Plugin {
 			this.cleanupNavHandler();
 			this.cleanupNavHandler = null;
 		}
+		if (this.cleanupBranchFoldHandler) {
+			this.cleanupBranchFoldHandler();
+			this.cleanupBranchFoldHandler = null;
+		}
+		if (this.cleanupTouchNavHandler) {
+			this.cleanupTouchNavHandler();
+			this.cleanupTouchNavHandler = null;
+		}
 		if (this.autoResizeHandle) {
 			this.autoResizeHandle.cleanup();
 			this.autoResizeHandle = null;
 		}
+		this.mobileToolbar?.unmount();
 
 		const canvas = this.canvasApi.getActiveCanvas();
 
@@ -517,9 +631,18 @@ export default class CanvasMindMapPlugin extends Plugin {
 		// Inject mindmap toggle button into canvas toolbar
 		this.injectToggleButton(canvas);
 
-		// Set up Ctrl+click zoom handler
+		// Set up Ctrl+click zoom handler (desktop) + long-press menu targets (mobile)
 		this.cleanupClickHandler =
 			this.navigation.registerClickHandler(canvas);
+		if (isMobileApp()) {
+			this.cleanupTouchNavHandler =
+				this.navigation.registerTouchHandler(canvas);
+		}
+
+		// Mobile bottom toolbar — phones only; tablets use desktop-like sidebar layout
+		if (isPhone()) {
+			this.mobileToolbar?.mount(canvas);
+		}
 
 		// Set up drag-end edge update handler
 		this.cleanupDragHandler =
@@ -528,6 +651,14 @@ export default class CanvasMindMapPlugin extends Plugin {
 		// Set up subtree drag handler (move descendants with parent)
 		this.cleanupSubtreeDragHandler =
 			registerSubtreeDragHandler(canvas, this.canvasApi);
+
+		// Set up branch fold chevrons (HeptaBase-style collapse)
+		this.cleanupBranchFoldHandler =
+			registerBranchFoldHandler(
+				canvas,
+				this.layoutEngine,
+				() => this.isMindmapCanvas(canvas)
+			);
 
 		// Set up group drag handler (Alt+drag leaves stranger nodes behind)
 		this.cleanupGroupDragHandler =
@@ -744,9 +875,16 @@ export default class CanvasMindMapPlugin extends Plugin {
 			};
 		}
 		if (this.isMindmapCanvas(canvas)) {
+			if (this.settings.autoLayout) {
+				this.layoutEngine.layout(canvas);
+				this.updateGroupBounds(canvas);
+			}
+			refreshBranchFoldUI(canvas, this.layoutEngine, () => this.isMindmapCanvas(canvas));
 			this.showOutline(canvas);
+			if (isPhone()) this.mobileToolbar?.setVisible(true);
 		} else {
 			this.hideOutline();
+			if (isPhone()) this.mobileToolbar?.setVisible(false);
 		}
 	}
 
@@ -756,6 +894,9 @@ export default class CanvasMindMapPlugin extends Plugin {
 			?? this.canvasApi.getAnyCanvas();
 		if (canvas) {
 			this.refreshOutline(canvas);
+			if (this.isMindmapCanvas(canvas)) {
+				refreshBranchFoldUI(canvas, this.layoutEngine, () => this.isMindmapCanvas(canvas));
+			}
 		}
 	}, 300);
 
@@ -767,6 +908,11 @@ export default class CanvasMindMapPlugin extends Plugin {
 				view.onForestLayout = (c, groupId) => {
 					this.layoutEngine.layoutForest(c, groupId);
 					this.updateGroupBounds(c);
+				};
+				view.onToggleBranchFold = (nodeId) => {
+					toggleBranchFold(canvas, this.layoutEngine, nodeId);
+					this.updateGroupBounds(canvas);
+					this.refreshOutline(canvas);
 				};
 				view.refresh(canvas);
 			}
@@ -1024,19 +1170,61 @@ export default class CanvasMindMapPlugin extends Plugin {
 		this.canvasApi.selectAndEdit(canvas, newNode, this.settings.navigationZoomPadding);
 	}
 
-	private showOutline(canvas: Canvas): void {
+	/** Insert a node between an existing parent and child (touch menu / Alt+click). */
+	private insertNodeBetweenParentAndChild(
+		canvas: Canvas,
+		parentNode: CanvasNode,
+		childNode: CanvasNode
+	): void {
+		const edges = this.canvasApi.getOutgoingEdges(canvas, parentNode.id);
+		const edge = edges.find(e => e.to.node.id === childNode.id);
+		if (!edge) return;
+
+		const fromSide = edge.from.side;
+		const toSide = edge.to.side;
+		const midX = (parentNode.x + parentNode.width / 2 + childNode.x + childNode.width / 2) / 2
+			- this.settings.defaultNodeWidth / 2;
+		const midY = (parentNode.y + parentNode.height / 2 + childNode.y + childNode.height / 2) / 2
+			- this.settings.defaultNodeHeight / 2;
+
+		const newNode = this.canvasApi.createTextNode(canvas, midX, midY);
+		canvas.removeEdge(edge);
+		this.canvasApi.invalidateEdgeIndex();
+		this.canvasApi.createEdge(canvas, parentNode, newNode, fromSide, toSide);
+		this.canvasApi.createEdge(canvas, newNode, childNode, fromSide, toSide);
+		this.finishInsertNode(canvas, newNode, parentNode);
+	}
+
+	private showOutline(canvas: Canvas, force = false): void {
 		const leaves = this.app.workspace.getLeavesOfType(OUTLINE_VIEW_TYPE);
 		if (leaves.length > 0) {
 			this.refreshOutline(canvas);
+			void this.revealOutline(leaves[0]);
 			return;
 		}
-		const leaf = this.app.workspace.getRightLeaf(false);
+		// On phones, don't auto-open — use command or toolbar
+		if (isPhone() && !force) return;
+
+		void this.openOutlinePanel(canvas);
+	}
+
+	private async openOutlinePanel(canvas: Canvas): Promise<void> {
+		let leaf = await ensureOutlineLeaf(this.app, OUTLINE_VIEW_TYPE);
 		if (!leaf) return;
-		void leaf.setViewState({ type: OUTLINE_VIEW_TYPE }).then(() => {
-			void this.app.workspace.revealLeaf(leaf);
-			this.reorderOutlineToTop(leaf);
-			this.refreshOutline(canvas);
-		});
+
+		if (leaf.view?.getViewType() !== OUTLINE_VIEW_TYPE) {
+			await leaf.setViewState({ type: OUTLINE_VIEW_TYPE });
+		}
+
+		await this.revealOutline(leaf);
+		this.reorderOutlineToTop(leaf);
+		this.refreshOutline(canvas);
+	}
+
+	private async revealOutline(leaf: WorkspaceLeaf): Promise<void> {
+		expandRightSidebar(this.app);
+		await this.app.workspace.revealLeaf(leaf);
+		this.reorderOutlineToTop(leaf);
 	}
 
 	private hideOutline(): void {
@@ -1139,11 +1327,16 @@ export default class CanvasMindMapPlugin extends Plugin {
 
 		if (newValue) {
 			this.showOutline(canvas);
+			refreshBranchFoldUI(canvas, this.layoutEngine, () => this.isMindmapCanvas(canvas));
+			if (isPhone()) this.mobileToolbar?.setVisible(true);
 		} else {
 			this.hideOutline();
+			refreshBranchFoldUI(canvas, this.layoutEngine, () => false);
+			if (isPhone()) this.mobileToolbar?.setVisible(false);
 		}
 
 		this.updateToggleButton(canvas);
+		if (isPhone()) this.mobileToolbar?.updateFab(canvas);
 	}
 
 	private injectToggleButton(canvas: Canvas): void {

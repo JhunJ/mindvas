@@ -11,6 +11,7 @@ import {
 	getPrevSibling,
 	TreeNode,
 } from "../mindmap/tree-model";
+import { isNodeBranchHidden } from "../mindmap/branch-fold";
 
 /**
  * Registers all mind map keyboard shortcuts on the canvas.
@@ -484,7 +485,11 @@ export class KeyboardHandler {
 	 * Find the child whose vertical center is closest to the current node's.
 	 */
 	private nearestChild(tree: TreeNode, candidates?: TreeNode[]): CanvasNode | null {
-		const children = candidates ?? tree.children;
+		const canvas = this.canvasApi.getActiveCanvas();
+		let children = candidates ?? tree.children;
+		if (canvas) {
+			children = children.filter(c => !isNodeBranchHidden(canvas, c.canvasNode.id));
+		}
 		if (children.length === 0) return null;
 
 		const nodeCy = tree.canvasNode.y + tree.canvasNode.height / 2;
@@ -526,7 +531,7 @@ export class KeyboardHandler {
 		if (!treeNode) return false;
 
 		const target = getTarget(treeNode);
-		if (!target) return false;
+		if (!target || isNodeBranchHidden(canvas, target.id)) return false;
 
 		this.onBeforeLeaveNode?.();
 		// Relayout from the root of the tree containing the node being left
