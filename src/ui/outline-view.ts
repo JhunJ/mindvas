@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, setIcon, Menu, Notice, SearchComponent } from "obsidian";
+import { ItemView, WorkspaceLeaf, setIcon, Menu, Notice, SearchComponent, App } from "obsidian";
 import type { Canvas, CanvasNode, CanvasView as CanvasViewType } from "../types/canvas-internal";
 import { buildForest, TreeNode, getDescendants, getGroupIds } from "../mindmap/tree-model";
 import { getCollapsedBranches, areAllBranchesCollapsed } from "../mindmap/branch-fold";
@@ -332,16 +332,16 @@ export class OutlineView extends ItemView {
 			self.createDiv({ cls: "tree-item-icon" });
 		}
 
+		self.createDiv({
+			cls: "tree-item-inner",
+			text: getNodeTitle(this.app, canvas, node.canvasNode),
+		});
+
 		if (opts.isRoot) {
-			const dragHandle = self.createDiv({ cls: "tree-item-icon mindvas-outline-drag-handle" });
+			const dragHandle = self.createDiv({ cls: "mindvas-outline-drag-handle clickable-icon" });
 			setIcon(dragHandle, "grip-vertical");
 			this.attachRootDragHandlers(self, dragHandle, node, opts.groupId ?? null);
 		}
-
-		self.createDiv({
-			cls: "tree-item-inner",
-			text: getRootTitle(node.canvasNode.text),
-		});
 
 		this.allItemEls.set(node.canvasNode.id, self);
 		this.attachNodeClickHandlers(self, node, canvas, opts);
@@ -848,6 +848,59 @@ export function getRootTitle(text: string): string {
 		.replace(/^#+\s*/, "")
 		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
 		|| "Untitled";
+}
+
+/** Basename of a vault path, without .md extension. */
+function titleFromVaultPath(path: string): string {
+	const base = path.split("/").pop() || path;
+	return base.replace(/\.md$/i, "") || "Untitled";
+}
+
+function resolveFilePath(node: CanvasNode, canvas: Canvas): string | null {
+	const runtimeFile = node.file;
+	if (typeof runtimeFile === "string" && runtimeFile.trim()) return runtimeFile;
+
+	const data = canvas.getData().nodes.find((n) => n.id === node.id);
+	if (data?.type === "file" && data.file?.trim()) return data.file;
+	if (data?.file?.trim()) return data.file;
+
+	return null;
+}
+
+/**
+ * Display title for any canvas node type (text, file, link, group).
+ * File nodes converted from cards use vault path — not node.text.
+ */
+export function getNodeTitle(app: App, canvas: Canvas, node: CanvasNode): string {
+	const data = canvas.getData().nodes.find((n) => n.id === node.id);
+
+	if (data?.type === "group" || node.type === "group") {
+		return (data?.label ?? node.label ?? "").trim() || "Untitled Group";
+	}
+
+	const filePath = resolveFilePath(node, canvas);
+	if (filePath) {
+		const cache = app.metadataCache.getCache(filePath);
+		const fmTitle = cache?.frontmatter?.title;
+		if (typeof fmTitle === "string" && fmTitle.trim()) return fmTitle.trim();
+		if (Array.isArray(fmTitle) && typeof fmTitle[0] === "string" && fmTitle[0].trim()) {
+			return fmTitle[0].trim();
+		}
+		return titleFromVaultPath(filePath);
+	}
+
+	if (data?.type === "link" || node.type === "link") {
+		const url = (data?.url ?? node.url ?? "").trim();
+		if (url) return url;
+	}
+
+	const text = (data?.text ?? node.text ?? "").trim();
+	if (text) return getRootTitle(text);
+
+	const domLabel = node.nodeEl?.querySelector(".canvas-node-label")?.textContent?.trim();
+	if (domLabel) return domLabel;
+
+	return "Untitled";
 }
 
 function branchCollapsedLabel(canvas: Canvas, nodeId: string): string {

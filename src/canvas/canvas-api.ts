@@ -35,6 +35,28 @@ export function findNodeFromEvent(canvas: Canvas, e: PointerEvent | MouseEvent):
 	return null;
 }
 
+/** Minimum pointer movement before treating a gesture as a node drag (not a pan). */
+export const NODE_DRAG_THRESHOLD_PX = 8;
+
+/** True when Obsidian canvas is in read-only / presentation mode. */
+export function isCanvasReadonly(canvas: Canvas): boolean {
+	return canvas.readonly === true;
+}
+
+/** True when the pointer target is a canvas node (not empty canvas background). */
+export function isNodePointerTarget(canvas: Canvas, e: PointerEvent | MouseEvent): boolean {
+	return findNodeFromEvent(canvas, e) !== null;
+}
+
+/**
+ * True when Mindvas should treat this pointer gesture as a node drag.
+ * In read mode the user is panning the viewport — never hijack as node drag.
+ */
+export function isNodeDragGesture(canvas: Canvas, e: PointerEvent | MouseEvent): boolean {
+	if (isCanvasReadonly(canvas)) return false;
+	return isNodePointerTarget(canvas, e);
+}
+
 /**
  * Typed wrapper around Obsidian's undocumented Canvas runtime API.
  * Maintains a lazily-built edge index for O(1) parent/child lookups.

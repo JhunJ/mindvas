@@ -29,6 +29,10 @@ export interface CanvasNode {
 	color: string;
 	text: string;
 	type: "text" | "file" | "link" | "group";
+	/** Vault path for file nodes (runtime). */
+	file?: string;
+	url?: string;
+	label?: string;
 	canvas: Canvas;
 	nodeEl: HTMLElement;
 	contentEl: HTMLElement;
@@ -93,6 +97,11 @@ export interface Canvas {
 	tx: number;
 	ty: number;
 	tZoom: number;
+
+	/** True when canvas is in read/presentation mode (mobile: pan-only). */
+	readonly?: boolean;
+	/** True while Obsidian is dragging a canvas node. */
+	isDragging?: boolean;
 
 	getData(): CanvasFileData;
 	setData(data: CanvasFileData): void;

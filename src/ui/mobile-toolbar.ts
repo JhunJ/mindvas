@@ -1,6 +1,6 @@
-import { Platform, Plugin, setIcon } from "obsidian";
+import { Menu, Plugin, setIcon } from "obsidian";
 import type { Canvas } from "../types/canvas-internal";
-import { isMobileApp } from "./mobile-utils";
+import { isMobileApp, isPhone } from "./mobile-utils";
 
 interface ToolbarAction {
 	id: string;
@@ -10,24 +10,23 @@ interface ToolbarAction {
 }
 
 const TOOLBAR_ACTIONS: ToolbarAction[] = [
-	{ id: "edit", icon: "pencil", label: "Edit", commandId: "mindvas:mindmap-edit-node" },
-	{ id: "child", icon: "plus", label: "Child", commandId: "mindvas:mindmap-add-child" },
-	{ id: "sibling", icon: "corner-down-left", label: "Sibling", commandId: "mindvas:mindmap-add-sibling" },
-	{ id: "fold", icon: "chevrons-down-up", label: "Fold", commandId: "mindvas:mindmap-toggle-branch-fold" },
-	{ id: "nav-left", icon: "arrow-left", label: "Left", commandId: "mindvas:mindmap-nav-left" },
-	{ id: "nav-up", icon: "arrow-up", label: "Up", commandId: "mindvas:mindmap-nav-prev-sibling" },
-	{ id: "nav-down", icon: "arrow-down", label: "Down", commandId: "mindvas:mindmap-nav-next-sibling" },
-	{ id: "nav-right", icon: "arrow-right", label: "Right", commandId: "mindvas:mindmap-nav-right" },
-	{ id: "relayout", icon: "refresh-cw", label: "Layout", commandId: "mindvas:mindmap-relayout" },
-	{ id: "outline", icon: "list-tree", label: "Outline", commandId: "mindvas:mindmap-open-outline" },
+	{ id: "edit", icon: "pencil", label: "Edit node", commandId: "mindvas:mindmap-edit-node" },
+	{ id: "child", icon: "plus", label: "Add child", commandId: "mindvas:mindmap-add-child" },
+	{ id: "sibling", icon: "corner-down-left", label: "Add sibling", commandId: "mindvas:mindmap-add-sibling" },
+	{ id: "fold", icon: "chevrons-down-up", label: "Toggle branch fold", commandId: "mindvas:mindmap-toggle-branch-fold" },
+	{ id: "nav-left", icon: "arrow-left", label: "Navigate left", commandId: "mindvas:mindmap-nav-left" },
+	{ id: "nav-up", icon: "arrow-up", label: "Navigate up", commandId: "mindvas:mindmap-nav-prev-sibling" },
+	{ id: "nav-down", icon: "arrow-down", label: "Navigate down", commandId: "mindvas:mindmap-nav-next-sibling" },
+	{ id: "nav-right", icon: "arrow-right", label: "Navigate right", commandId: "mindvas:mindmap-nav-right" },
+	{ id: "relayout", icon: "refresh-cw", label: "Re-layout", commandId: "mindvas:mindmap-relayout" },
+	{ id: "outline", icon: "list-tree", label: "Open outline", commandId: "mindvas:mindmap-open-outline" },
 ];
 
 /**
- * Floating bottom toolbar for touch devices.
- * Surfaces core mindmap commands without a physical keyboard.
+ * Mobile canvas controls — single FAB + popup menu on phones to avoid
+ * overlapping Obsidian's native canvas bottom toolbar.
  */
 export class MobileToolbar {
-	private toolbarEl: HTMLElement | null = null;
 	private fabEl: HTMLElement | null = null;
 	private visible = false;
 
@@ -37,68 +36,64 @@ export class MobileToolbar {
 	) {}
 
 	mount(canvas: Canvas): void {
-		if (!isMobileApp()) return;
+		if (!isMobileApp() || !isPhone()) return;
 		this.unmount();
 
 		const wrapper = canvas.wrapperEl;
 		if (!wrapper) return;
 
-		const toolbar = document.createElement("div");
-		toolbar.addClass("mindvas-mobile-toolbar");
-		toolbar.setAttribute("role", "toolbar");
-		toolbar.setAttribute("aria-label", "Mindvas actions");
-
-		for (const action of TOOLBAR_ACTIONS) {
-			const btn = document.createElement("div");
-			btn.addClass("mindvas-mobile-toolbar-btn", "clickable-icon");
-			btn.setAttribute("aria-label", action.label);
-			btn.setAttribute("data-action", action.id);
-			setIcon(btn, action.icon);
-			toolbar.appendChild(btn);
-			this.plugin.registerDomEvent(btn, "click", (e) => {
-				e.preventDefault();
-				e.stopPropagation();
-				const { commands } = this.plugin.app as unknown as {
-					commands: { executeCommandById: (id: string) => boolean };
-				};
-				commands?.executeCommandById?.(action.commandId);
-			});
-		}
-
-		wrapper.appendChild(toolbar);
-		this.toolbarEl = toolbar;
-		this.setVisible(this.isMindmapActive(canvas));
-
-		// FAB for mindmap mode toggle when canvas toolbar is unavailable
-		if (!canvas.view.containerEl.querySelector(".canvas-controls")) {
-			this.mountFab(canvas, wrapper);
-		}
-	}
-
-	private mountFab(canvas: Canvas, wrapper: HTMLElement): void {
 		const fab = document.createElement("button");
-		fab.addClass("mindvas-mobile-fab", "clickable-icon");
+		fab.addClass("mindvas-mobile-action-fab", "clickable-icon");
 		fab.setAttribute("type", "button");
-		fab.setAttribute("aria-label", "Toggle mindmap mode");
-		setIcon(fab, this.isMindmapActive(canvas) ? "network" : "layout-dashboard");
-		fab.toggleClass("is-active", this.isMindmapActive(canvas));
+		fab.setAttribute("aria-label", "Mindvas actions");
 
 		this.plugin.registerDomEvent(fab, "click", (e) => {
 			e.preventDefault();
 			e.stopPropagation();
-			const { commands } = this.plugin.app as unknown as {
-				commands: { executeCommandById: (id: string) => boolean };
-			};
-			commands?.executeCommandById?.("mindvas:mindmap-toggle-mode");
+			this.openActionMenu(fab, canvas);
 		});
 
 		wrapper.appendChild(fab);
 		this.fabEl = fab;
+		this.updateFab(canvas);
+		this.setVisible(this.isMindmapActive(canvas));
+	}
+
+	private openActionMenu(anchor: HTMLElement, canvas: Canvas): void {
+		const menu = new Menu();
+		const { commands } = this.plugin.app as unknown as {
+			commands: { executeCommandById: (id: string) => boolean };
+		};
+
+		menu.addItem((item) => {
+			const active = this.isMindmapActive(canvas);
+			item.setTitle(active ? "Disable mindmap mode" : "Enable mindmap mode")
+				.setIcon(active ? "network" : "layout-dashboard")
+				.onClick(() => commands?.executeCommandById?.("mindvas:mindmap-toggle-mode"));
+		});
+
+		if (this.isMindmapActive(canvas)) {
+			menu.addSeparator();
+			for (const action of TOOLBAR_ACTIONS) {
+				menu.addItem((item) => {
+					item.setTitle(action.label)
+						.setIcon(action.icon)
+						.onClick(() => commands?.executeCommandById?.(action.commandId));
+				});
+			}
+		}
+
+		menu.showAtPosition({
+			x: anchor.getBoundingClientRect().right,
+			y: anchor.getBoundingClientRect().top,
+			overlap: true,
+			left: true,
+		});
 	}
 
 	setVisible(visible: boolean): void {
 		this.visible = visible;
-		this.toolbarEl?.toggleClass("is-hidden", !visible);
+		this.fabEl?.toggleClass("is-hidden", !visible);
 	}
 
 	updateFab(canvas: Canvas): void {
@@ -107,12 +102,10 @@ export class MobileToolbar {
 		this.fabEl.empty();
 		setIcon(this.fabEl, active ? "network" : "layout-dashboard");
 		this.fabEl.toggleClass("is-active", active);
-		this.fabEl.setAttribute("aria-label", active ? "Mindmap mode (active)" : "Mindmap mode (inactive)");
+		this.fabEl.setAttribute("aria-label", active ? "Mindvas (active)" : "Mindvas");
 	}
 
 	unmount(): void {
-		this.toolbarEl?.remove();
-		this.toolbarEl = null;
 		this.fabEl?.remove();
 		this.fabEl = null;
 		this.visible = false;

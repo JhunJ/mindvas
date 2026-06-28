@@ -1,6 +1,6 @@
 import { Plugin, Notice, TFile, TFolder, Menu, debounce, WorkspaceLeaf, setIcon, ItemView, Platform } from "obsidian";
 import type { Canvas, CanvasNode, CanvasEdge, CreateNodeOptions } from "./types/canvas-internal";
-import { CanvasAPI } from "./canvas/canvas-api";
+import { CanvasAPI, findNodeFromEvent, isCanvasReadonly, NODE_DRAG_THRESHOLD_PX } from "./canvas/canvas-api";
 import { NodeOperations } from "./mindmap/node-operations";
 import { LayoutEngine } from "./mindmap/layout-engine";
 import { BranchColors } from "./mindmap/branch-colors";
@@ -65,7 +65,6 @@ export default class CanvasMindMapPlugin extends Plugin {
 	private cleanupNavHandler: (() => void) | null = null;
 	private cleanupBranchFoldHandler: (() => void) | null = null;
 	private mobileToolbar: MobileToolbar | null = null;
-	private cleanupTouchNavHandler: (() => void) | null = null;
 
 	async onload(): Promise<void> {
 		try {
@@ -526,10 +525,6 @@ export default class CanvasMindMapPlugin extends Plugin {
 			this.cleanupBranchFoldHandler();
 			this.cleanupBranchFoldHandler = null;
 		}
-		if (this.cleanupTouchNavHandler) {
-			this.cleanupTouchNavHandler();
-			this.cleanupTouchNavHandler = null;
-		}
 		this.mobileToolbar?.unmount();
 		this.lastNavCanvas = null;
 		if (this.toggleBtnEl) {
@@ -593,10 +588,6 @@ export default class CanvasMindMapPlugin extends Plugin {
 			this.cleanupBranchFoldHandler();
 			this.cleanupBranchFoldHandler = null;
 		}
-		if (this.cleanupTouchNavHandler) {
-			this.cleanupTouchNavHandler();
-			this.cleanupTouchNavHandler = null;
-		}
 		this.mobileToolbar?.unmount();
 
 		const canvas = this.canvasApi.getActiveCanvas();
@@ -622,13 +613,9 @@ export default class CanvasMindMapPlugin extends Plugin {
 		// Inject mindmap toggle button into canvas toolbar
 		this.injectToggleButton(canvas);
 
-		// Set up Ctrl+click zoom handler (desktop) + long-press menu targets (mobile)
+		// Ctrl+click zoom (desktop). Touch: node menu → "Zoom to branch".
 		this.cleanupClickHandler =
 			this.navigation.registerClickHandler(canvas);
-		if (isMobileApp()) {
-			this.cleanupTouchNavHandler =
-				this.navigation.registerTouchHandler(canvas);
-		}
 
 		// Mobile bottom toolbar — phones only; tablets use desktop-like sidebar layout
 		if (isPhone()) {
@@ -655,11 +642,48 @@ export default class CanvasMindMapPlugin extends Plugin {
 		this.cleanupGroupDragHandler =
 			registerGroupDragHandler(canvas, this.canvasApi);
 
-		// Update group bounds after any drag operation (deferred to let positions settle)
-		const onDragEnd = () => this.trackedRaf(() => this.updateGroupBounds(canvas));
-		canvas.wrapperEl.addEventListener('pointerup', onDragEnd);
-		this.cleanupGroupBoundsHandler = () =>
-			canvas.wrapperEl.removeEventListener('pointerup', onDragEnd);
+		// Update group bounds after a node drag (not viewport pan in read mode)
+		let groupDragPending = false;
+		let groupDragActive = false;
+		let groupDragStartX = 0;
+		let groupDragStartY = 0;
+		const dragOpts = { passive: true } as AddEventListenerOptions;
+
+		const onGroupPointerDown = (e: PointerEvent) => {
+			if (isCanvasReadonly(canvas) || !this.isMindmapCanvas(canvas)) {
+				groupDragPending = false;
+				return;
+			}
+			groupDragPending = findNodeFromEvent(canvas, e) !== null;
+			groupDragActive = false;
+			groupDragStartX = e.clientX;
+			groupDragStartY = e.clientY;
+		};
+		const onGroupPointerMove = (e: PointerEvent) => {
+			if (!groupDragPending || e.buttons === 0) return;
+			if (Math.hypot(e.clientX - groupDragStartX, e.clientY - groupDragStartY) >= NODE_DRAG_THRESHOLD_PX) {
+				groupDragActive = true;
+			}
+		};
+		const onDragEnd = () => {
+			if (!groupDragActive) {
+				groupDragPending = false;
+				return;
+			}
+			groupDragPending = false;
+			groupDragActive = false;
+			this.trackedRaf(() => this.updateGroupBounds(canvas));
+		};
+		canvas.wrapperEl.addEventListener("pointerdown", onGroupPointerDown, dragOpts);
+		canvas.wrapperEl.addEventListener("pointermove", onGroupPointerMove, dragOpts);
+		canvas.wrapperEl.addEventListener("pointerup", onDragEnd, dragOpts);
+		canvas.wrapperEl.addEventListener("pointercancel", onDragEnd, dragOpts);
+		this.cleanupGroupBoundsHandler = () => {
+			canvas.wrapperEl.removeEventListener("pointerdown", onGroupPointerDown, dragOpts);
+			canvas.wrapperEl.removeEventListener("pointermove", onGroupPointerMove, dragOpts);
+			canvas.wrapperEl.removeEventListener("pointerup", onDragEnd, dragOpts);
+			canvas.wrapperEl.removeEventListener("pointercancel", onDragEnd, dragOpts);
+		};
 
 		// Sync outline highlight when canvas selection changes (click or Escape)
 		const syncOutlineSelection = () => {

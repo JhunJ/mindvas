@@ -6,7 +6,8 @@
  *   npm run install-to-vault
  *   VAULT=/other/vault npm run install-to-vault
  */
-import { cpSync, mkdirSync, existsSync, readFileSync, writeFileSync } from "fs";
+import { cpSync, mkdirSync, existsSync, readFileSync, writeFileSync, statSync } from "fs";
+import { createHash } from "crypto";
 import { join, resolve } from "path";
 import { homedir } from "os";
 
@@ -53,5 +54,26 @@ if (existsSync(pluginsJsonPath)) {
 	}
 }
 
+const mainJs = join(target, "main.js");
+const hash = createHash("sha256").update(readFileSync(mainJs)).digest("hex").slice(0, 12);
+const mtime = statSync(mainJs).mtime.toISOString();
+
 console.log(`Installed Mindvas ${manifest.version} → ${target}`);
-console.log("Sync your vault, then reopen Obsidian on mobile.");
+console.log(`  main.js sha256:${hash}  (${mtime})`);
+console.log("");
+console.log("── Mobile still on an old version? ──");
+console.log("Obsidian Sync does NOT push plugin files unless BOTH devices have:");
+console.log("  Settings → Sync → Vault configuration sync →");
+console.log('    ✓ "Active community plugin list"');
+console.log('    ✓ "Installed community plugins"  ← required for main.js/manifest.json');
+console.log("");
+console.log("On Mac: wait until Sync shows complete, then on Galaxy Tab:");
+console.log("  1. Pull sync (ribbon icon) and wait until finished");
+console.log("  2. Force-quit Obsidian completely");
+console.log("  3. Reopen → Settings → Community plugins → Mindvas version");
+console.log("");
+console.log("Verify on tablet (Files app):");
+console.log("  .obsidian/plugins/mindvas/manifest.json  →  version should be", manifest.version);
+console.log("");
+console.log("If still old: Settings → Community plugins → disable Mindvas,");
+console.log("delete .obsidian/plugins/mindvas/ on tablet, sync again, reopen Obsidian.");

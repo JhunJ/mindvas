@@ -1,4 +1,5 @@
 import type { Canvas, CanvasNode, NodeSide } from "../types/canvas-internal";
+import { isNodeDragGesture, isNodePointerTarget } from "./canvas-api";
 
 interface NodeCenter {
 	cx: number;
@@ -66,18 +67,20 @@ export function updateAllEdgeSides(canvas: Canvas): void {
 
 /**
  * Register pointer listeners on the canvas wrapper that update
- * edge connection sides both during and after node drags.
- * Uses a throttled pointermove for live updates and an immediate
- * pointerup for a final correction when the drag ends.
- * Returns a cleanup function to remove the listeners.
+ * edge connection sides during node drags only — not during viewport pan
+ * (read mode on mobile/tablet).
  */
 export function registerDragEndHandler(canvas: Canvas): () => void {
+	let dragSession = false;
 	let lastMoveUpdate = 0;
-	const THROTTLE_MS = 40; // ~25fps — responsive but not wasteful
+	const THROTTLE_MS = 40;
+
+	const downHandler = (e: PointerEvent) => {
+		dragSession = isNodeDragGesture(canvas, e);
+	};
 
 	const moveHandler = (e: PointerEvent) => {
-		// Only update while a button is pressed (i.e. during a drag)
-		if (e.buttons === 0) return;
+		if (!dragSession || e.buttons === 0) return;
 
 		const now = Date.now();
 		if (now - lastMoveUpdate < THROTTLE_MS) return;
@@ -87,14 +90,24 @@ export function registerDragEndHandler(canvas: Canvas): () => void {
 	};
 
 	const upHandler = () => {
+		if (!dragSession) return;
+		dragSession = false;
 		updateAllEdgeSides(canvas);
 	};
 
-	canvas.wrapperEl?.addEventListener("pointermove", moveHandler);
-	canvas.wrapperEl?.addEventListener("pointerup", upHandler);
+	const opts = { passive: true } as AddEventListenerOptions;
+	const wrapper = canvas.wrapperEl;
+	wrapper?.addEventListener("pointerdown", downHandler, opts);
+	wrapper?.addEventListener("pointermove", moveHandler, opts);
+	wrapper?.addEventListener("pointerup", upHandler, opts);
+	wrapper?.addEventListener("pointercancel", upHandler, opts);
 
 	return () => {
-		canvas.wrapperEl?.removeEventListener("pointermove", moveHandler);
-		canvas.wrapperEl?.removeEventListener("pointerup", upHandler);
+		wrapper?.removeEventListener("pointerdown", downHandler, opts);
+		wrapper?.removeEventListener("pointermove", moveHandler, opts);
+		wrapper?.removeEventListener("pointerup", upHandler, opts);
+		wrapper?.removeEventListener("pointercancel", upHandler, opts);
 	};
 }
+
+export { isNodePointerTarget };

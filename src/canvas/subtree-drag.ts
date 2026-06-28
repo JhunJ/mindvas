@@ -1,5 +1,5 @@
 import type { Canvas, CanvasNode } from "../types/canvas-internal";
-import { CanvasAPI, findNodeFromEvent } from "./canvas-api";
+import { CanvasAPI, findNodeFromEvent, isCanvasReadonly, NODE_DRAG_THRESHOLD_PX } from "./canvas-api";
 
 /**
  * Collect all descendant nodes by walking outgoing edges (BFS).
@@ -28,18 +28,19 @@ function collectDescendants(canvas: Canvas, canvasApi: CanvasAPI, nodeId: string
  * Register pointer listeners that make dragging a node also move
  * all its descendant nodes, preserving relative positions.
  *
- * Uses capture-phase pointerdown to install a moveTo wrapper BEFORE
- * Obsidian's own handlers fire, ensuring descendants move from the
- * very first drag frame — even in a single click-drag gesture.
+ * Skipped entirely in canvas read mode so viewport pan stays smooth.
+ * Uses a movement threshold so taps / pans starting on a node do not
+ * install moveTo wrappers prematurely.
  *
  * Hold Alt while dragging to move only the single node.
- *
- * Returns a cleanup function to remove the listeners.
  */
 export function registerSubtreeDragHandler(canvas: Canvas, canvasApi: CanvasAPI): () => void {
 	let draggedNode: CanvasNode | null = null;
 	let cachedDescendants: CanvasNode[] | null = null;
 	let originalMoveTo: ((pos: { x: number; y: number }) => void) | null = null;
+	let pendingNode: CanvasNode | null = null;
+	let startX = 0;
+	let startY = 0;
 
 	function installWrapper(node: CanvasNode): void {
 		const descendants = collectDescendants(canvas, canvasApi, node.id);
@@ -48,67 +49,64 @@ export function registerSubtreeDragHandler(canvas: Canvas, canvasApi: CanvasAPI)
 		draggedNode = node;
 		cachedDescendants = descendants;
 
-		// Wrap moveTo so descendants move in the same call stack.
-		// Use prototype's moveTo (not instance) to avoid stacked wrappers.
 		const proto = Object.getPrototypeOf(node) as CanvasNode;
 		originalMoveTo = proto.moveTo.bind(node);
 		node.moveTo = (pos: { x: number; y: number }) => {
 			const dx = pos.x - node.x;
 			const dy = pos.y - node.y;
 			originalMoveTo!(pos);
-			// Call descendants' moveTo via prototype to bypass any
-			// per-instance wrappers — prevents infinite recursion.
 			for (const desc of cachedDescendants!) {
 				const descProto = Object.getPrototypeOf(desc) as CanvasNode;
-				descProto.moveTo.call(
-					desc, { x: desc.x + dx, y: desc.y + dy }
-				);
+				descProto.moveTo.call(desc, { x: desc.x + dx, y: desc.y + dy });
 			}
 		};
 	}
 
 	function clearDragSession(): void {
 		if (draggedNode && originalMoveTo) {
-			// Remove instance override to restore prototype method lookup
 			delete (draggedNode as { moveTo?: unknown }).moveTo;
 		}
 		draggedNode = null;
 		cachedDescendants = null;
 		originalMoveTo = null;
+		pendingNode = null;
 	}
 
-	// Capture-phase pointerdown: fires BEFORE Obsidian's bubble-phase handlers.
-	// Find clicked node from e.target (selection not updated yet) and install
-	// the moveTo wrapper immediately — before any drag moveTo() calls.
 	const downHandler = (e: PointerEvent): void => {
-		// Clear any stale session from a previous drag
 		if (draggedNode) clearDragSession();
-
+		if (isCanvasReadonly(canvas)) return;
 		if (e.altKey) return;
 
 		const node = findNodeFromEvent(canvas, e);
-		if (node) {
-			installWrapper(node);
-		}
+		if (!node) return;
+
+		pendingNode = node;
+		startX = e.clientX;
+		startY = e.clientY;
 	};
 
 	const moveHandler = (e: PointerEvent): void => {
+		if (isCanvasReadonly(canvas)) {
+			clearDragSession();
+			return;
+		}
 		if (e.buttons === 0) return;
 
-		// Alt key = solo drag
 		if (e.altKey) {
 			if (draggedNode) clearDragSession();
+			pendingNode = null;
 			return;
 		}
 
-		// Fallback: if downHandler missed (e.g. programmatic selection)
-		if (!draggedNode) {
-			const node = canvasApi.getSelectedNode(canvas);
-			if (node) installWrapper(node);
-			if (!draggedNode) return;
+		if (!draggedNode && pendingNode) {
+			if (Math.hypot(e.clientX - startX, e.clientY - startY) >= NODE_DRAG_THRESHOLD_PX) {
+				installWrapper(pendingNode);
+				pendingNode = null;
+			}
 		}
 
-		// Verify the dragged node is still selected
+		if (!draggedNode) return;
+
 		const currentSelected = canvasApi.getSelectedNode(canvas);
 		if (!currentSelected || currentSelected.id !== draggedNode.id) {
 			clearDragSession();
@@ -116,20 +114,24 @@ export function registerSubtreeDragHandler(canvas: Canvas, canvasApi: CanvasAPI)
 	};
 
 	const upHandler = (): void => {
+		pendingNode = null;
 		if (!draggedNode) return;
 		canvas.requestSave();
 		clearDragSession();
 	};
 
-	// downHandler in capture phase (true) — fires before Obsidian's handlers
-	canvas.wrapperEl?.addEventListener("pointerdown", downHandler, true);
-	canvas.wrapperEl?.addEventListener("pointermove", moveHandler);
-	canvas.wrapperEl?.addEventListener("pointerup", upHandler);
+	const opts = { passive: true } as AddEventListenerOptions;
+	const wrapper = canvas.wrapperEl;
+	wrapper?.addEventListener("pointerdown", downHandler, opts);
+	wrapper?.addEventListener("pointermove", moveHandler, opts);
+	wrapper?.addEventListener("pointerup", upHandler, opts);
+	wrapper?.addEventListener("pointercancel", upHandler, opts);
 
 	return () => {
 		clearDragSession();
-		canvas.wrapperEl?.removeEventListener("pointerdown", downHandler, true);
-		canvas.wrapperEl?.removeEventListener("pointermove", moveHandler);
-		canvas.wrapperEl?.removeEventListener("pointerup", upHandler);
+		wrapper?.removeEventListener("pointerdown", downHandler, opts);
+		wrapper?.removeEventListener("pointermove", moveHandler, opts);
+		wrapper?.removeEventListener("pointerup", upHandler, opts);
+		wrapper?.removeEventListener("pointercancel", upHandler, opts);
 	};
 }

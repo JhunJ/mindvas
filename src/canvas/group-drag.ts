@@ -1,5 +1,5 @@
 import type { Canvas, CanvasNode } from "../types/canvas-internal";
-import { CanvasAPI, findNodeFromEvent } from "./canvas-api";
+import { CanvasAPI, findNodeFromEvent, isCanvasReadonly } from "./canvas-api";
 import { getGroupIds } from "../mindmap/tree-model";
 
 /**
@@ -65,6 +65,7 @@ export function registerGroupDragHandler(canvas: Canvas, canvasApi: CanvasAPI): 
 	const frozenNodes: CanvasNode[] = [];
 
 	const downHandler = (e: PointerEvent): void => {
+		if (isCanvasReadonly(canvas)) return;
 		if (!e.altKey) return;
 
 		const node = findNodeFromEvent(canvas, e);

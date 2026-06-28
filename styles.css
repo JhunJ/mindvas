@@ -60,22 +60,38 @@
 	padding-inline-start: var(--nav-indentation-width, 24px);
 }
 
-.mindvas-outline .mindvas-outline-item .tree-item-self {
-	display: flex;
+.mindvas-outline .mindvas-outline-item.tree-item-self {
+	display: grid !important;
+	grid-template-columns: var(--icon-size, 18px) minmax(0, 1fr) auto;
 	align-items: center;
-	min-height: var(--touch-input-height, 28px);
+	column-gap: 2px;
+	width: 100%;
+	min-height: unset;
+	padding-block: 1px;
+}
+
+.mindvas-outline .mindvas-outline-item .tree-item-icon {
+	grid-column: 1;
+	grid-row: 1;
+	width: var(--icon-size, 18px);
+	height: var(--icon-size, 18px);
+}
+
+.mindvas-outline .mindvas-outline-item .tree-item-inner {
+	grid-column: 2;
+	grid-row: 1;
+	text-overflow: ellipsis;
+	overflow: hidden;
+	white-space: nowrap;
+	width: auto !important;
+	min-width: 0;
+	flex: unset;
+	line-height: var(--line-height-normal, 1.4);
+	padding-block: 0;
 }
 
 .mindvas-outline .tree-item.is-collapsed > .tree-item-children {
 	display: none;
-}
-
-.mindvas-outline .mindvas-outline-item .tree-item-inner {
-	text-overflow: ellipsis;
-	overflow: hidden;
-	white-space: nowrap;
-	width: 0;
-	flex: 1;
 }
 
 .mindvas-outline .mindvas-outline-item.is-active {
@@ -96,8 +112,15 @@
 	transform: rotate(0deg);
 }
 
-/* Drag handle on TOC root items — shown on hover */
+/* Drag handle — column 3, right of title */
 .mindvas-outline .mindvas-outline-drag-handle {
+	grid-column: 3;
+	grid-row: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--icon-size, 18px);
+	height: var(--icon-size, 18px);
 	cursor: grab;
 	color: var(--text-faint);
 	flex-shrink: 0;
@@ -250,53 +273,17 @@
 
 /* ── Mobile / touch device optimizations ── */
 
-.mindvas-mobile-toolbar {
+/* Phone: single FAB above Obsidian canvas bottom bar (no stacked toolbar) */
+.mindvas-mobile-action-fab {
 	position: absolute;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	z-index: 50;
-	display: flex;
-	gap: 2px;
-	padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
-	overflow-x: auto;
-	overflow-y: hidden;
-	-webkit-overflow-scrolling: touch;
-	background: var(--background-primary);
-	border-top: 1px solid var(--background-modifier-border);
-	box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.mindvas-mobile-toolbar.is-hidden {
-	display: none;
-}
-
-.mindvas-mobile-toolbar-btn {
-	flex: 0 0 auto;
+	right: 12px;
+	bottom: calc(52px + env(safe-area-inset-bottom, 0px));
+	z-index: 45;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	width: 44px;
 	height: 44px;
-	border-radius: var(--radius-m);
-	color: var(--text-muted);
-}
-
-.mindvas-mobile-toolbar-btn:active {
-	color: var(--interactive-accent);
-	background: var(--background-modifier-hover);
-}
-
-.mindvas-mobile-fab {
-	position: absolute;
-	top: 12px;
-	right: 12px;
-	z-index: 51;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 48px;
-	height: 48px;
 	padding: 0;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 50%;
@@ -305,9 +292,27 @@
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
-.mindvas-mobile-fab.is-active {
+.mindvas-mobile-action-fab.is-hidden {
+	display: none;
+}
+
+.mindvas-mobile-action-fab.is-active {
 	color: var(--interactive-accent);
 	border-color: var(--interactive-accent);
+}
+
+.mindvas-mobile-action-fab:active {
+	color: var(--interactive-accent);
+	background: var(--background-modifier-hover);
+}
+
+/* Legacy toolbar — unused on phone, kept hidden */
+.mindvas-mobile-toolbar {
+	display: none !important;
+}
+
+.mindvas-mobile-fab {
+	display: none !important;
 }
 
 /* Always show touch targets — no hover on mobile */
@@ -329,8 +334,9 @@ body.mindvas-mobile .mindvas-fold-chevron.is-left {
 	left: -36px;
 }
 
-body.mindvas-mobile .mindvas-outline .mindvas-outline-item .tree-item-self {
-	min-height: 44px;
+body.mindvas-mobile .mindvas-outline .mindvas-outline-item.tree-item-self {
+	min-height: unset;
+	padding-block: 2px;
 }
 
 body.mindvas-tablet .mindvas-fold-chevron {
@@ -341,18 +347,22 @@ body.mindvas-tablet .mindvas-fold-chevron {
 
 body.mindvas-mobile .mindvas-outline .mindvas-outline-drag-handle {
 	opacity: 0.5;
-	padding: 8px;
+	width: 22px;
+	height: 22px;
+	padding: 0;
 }
 
 body.mindvas-mobile .mindvas-outline .collapse-icon {
 	opacity: 1;
-	min-width: 24px;
-	min-height: 24px;
+	width: var(--icon-size, 18px);
+	height: var(--icon-size, 18px);
+	min-width: unset;
+	min-height: unset;
 }
 
-/* Tablet: leave room for right sidebar outline — no bottom toolbar */
-body.mindvas-tablet .mindvas-mobile-toolbar {
-	display: none;
+/* Tablet: leave room for right sidebar outline — no phone FAB */
+body.mindvas-tablet .mindvas-mobile-action-fab {
+	display: none !important;
 }
 
 /* Fallback for any touch device without hover */
