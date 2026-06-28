@@ -42,15 +42,17 @@ if (manifest.isDesktopOnly === true) {
 	process.exit(1);
 }
 
-// Ensure mindvas is in community-plugins.json so sync enables it on mobile too.
+// Ensure mindvas is in community-plugins.json (append-only — never remove other plugins).
 const pluginsJsonPath = join(vault, ".obsidian", "community-plugins.json");
 if (existsSync(pluginsJsonPath)) {
-	const enabled = JSON.parse(readFileSync(pluginsJsonPath, "utf8"));
+	const raw = readFileSync(pluginsJsonPath, "utf8");
+	const enabled = JSON.parse(raw);
 	if (Array.isArray(enabled) && !enabled.includes("mindvas")) {
+		// Backup before any write so a mistaken edit can be rolled back.
+		writeFileSync(pluginsJsonPath + ".bak", raw);
 		enabled.push("mindvas");
-		enabled.sort();
-		writeFileSync(pluginsJsonPath, JSON.stringify(enabled, null, 2) + "\n");
-		console.log("Added mindvas to community-plugins.json");
+		writeFileSync(pluginsJsonPath, JSON.stringify(enabled, null, "\t") + "\n");
+		console.log("Added mindvas to community-plugins.json (other plugins untouched)");
 	}
 }
 

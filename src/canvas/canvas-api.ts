@@ -144,16 +144,15 @@ export class CanvasAPI {
 	}
 
 	/**
-	 * Get the currently selected node (single selection).
+	 * Get a selected text/file node (first match if several selected).
 	 */
 	getSelectedNode(canvas: Canvas): CanvasNode | null {
-		const selection = canvas.selection;
-		if (selection.size !== 1) return null;
-
-		const item = selection.values().next().value;
-		if (!item || !("nodeEl" in item)) return null;
-
-		return item as CanvasNode;
+		for (const item of canvas.selection) {
+			if (!item || !("nodeEl" in item)) continue;
+			const node = item as CanvasNode;
+			if (node.type === "text" || node.type === "file") return node;
+		}
+		return null;
 	}
 
 	/**

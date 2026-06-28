@@ -383,3 +383,250 @@ body.mindvas-tablet .mindvas-mobile-action-fab {
 		height: 32px;
 	}
 }
+
+/* ── Masking tape ── */
+
+.canvas-node.mindvas-has-mask .canvas-node-content,
+.canvas-node.mindvas-mask-revealed .canvas-node-content {
+	position: relative;
+}
+
+.mindvas-mask-tape {
+	position: absolute;
+	inset: 0;
+	z-index: 9999;
+	margin: 0;
+	padding: 0;
+	border: none;
+	border-radius: calc(var(--radius-s) - 2px);
+	cursor: pointer;
+	touch-action: manipulation;
+	pointer-events: auto;
+	background-color: rgba(120, 170, 255, 0.93);
+	background-image: repeating-linear-gradient(
+		-42deg,
+		transparent,
+		transparent 6px,
+		rgba(255, 255, 255, 0.15) 6px,
+		rgba(255, 255, 255, 0.15) 12px
+	);
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 1px 3px rgba(0, 0, 0, 0.1);
+	transition: opacity 0.2s ease, transform 0.25s ease;
+}
+
+.mindvas-mask-tape.is-revealed {
+	top: auto;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	height: 26px;
+	inset: auto 0 0 0;
+	opacity: 1;
+	font-size: 11px;
+	color: #152a5a;
+	background-color: rgba(120, 170, 255, 0.75);
+	background-image: none;
+}
+
+.canvas-node.mindvas-mask-revealed {
+	outline: 2px solid rgba(120, 170, 255, 0.45);
+	outline-offset: -2px;
+	border-radius: var(--radius-s);
+}
+
+.mindvas-inline-revealed {
+	background: rgba(120, 170, 255, 0.2);
+	border-radius: 3px;
+	padding: 1px 4px;
+	cursor: pointer;
+	pointer-events: auto;
+	position: relative;
+	z-index: 2;
+}
+
+body.mindvas-mobile .mindvas-mask-tape {
+	min-height: 44px;
+}
+
+.mindvas-menu-swatch {
+	display: inline-block;
+	width: 12px;
+	height: 12px;
+	margin-right: 8px;
+	border-radius: 50%;
+	vertical-align: -1px;
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.35),
+		0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.mindvas-menu-swatch-label {
+	vertical-align: middle;
+}
+
+.mindvas-mask-yellow.mindvas-menu-swatch {
+	background-color: rgba(255, 214, 64, 0.93);
+}
+
+.mindvas-mask-red.mindvas-menu-swatch {
+	background-color: rgba(255, 120, 120, 0.93);
+}
+
+.mindvas-mask-blue.mindvas-menu-swatch {
+	background-color: rgba(120, 170, 255, 0.93);
+}
+
+.mindvas-mask-green.mindvas-menu-swatch {
+	background-color: rgba(120, 210, 140, 0.93);
+}
+
+.canvas-node-container {
+	overflow: visible;
+}
+
+.mindvas-mask-preview {
+	position: absolute;
+	inset: 0;
+	z-index: 10000;
+	padding: 8px 12px;
+	overflow: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+	pointer-events: auto;
+	background: var(--background-primary);
+}
+
+.mindvas-native-hidden {
+	visibility: hidden !important;
+	pointer-events: none !important;
+	opacity: 0 !important;
+}
+
+.canvas-node.mindvas-has-inline-mask {
+	position: relative;
+	overflow: hidden;
+}
+
+.canvas-node.mindvas-has-inline-mask > .canvas-node-container,
+.canvas-node[data-mindvas-inline-mask] > .canvas-node-container {
+	display: none !important;
+}
+
+/* In-preview masks: keep native markdown + card color/theme visible */
+.canvas-node[data-mindvas-preview-masked] > .canvas-node-container,
+.canvas-node[data-mindvas-preview-masked] .markdown-embed-content,
+.canvas-node[data-mindvas-preview-masked] .markdown-preview-view {
+	display: block !important;
+	visibility: visible !important;
+	opacity: 1 !important;
+	pointer-events: auto !important;
+}
+
+.canvas-node[data-mindvas-preview-masked] [data-mindvas-hidden] {
+	display: revert !important;
+	visibility: visible !important;
+	opacity: 1 !important;
+	pointer-events: auto !important;
+}
+
+.canvas-node.mindvas-has-inline-mask .markdown-embed-content:not(.mindvas-mask-preview),
+.canvas-node[data-mindvas-inline-mask] .markdown-embed-content:not(.mindvas-mask-preview) {
+	display: none !important;
+}
+
+.canvas-node.mindvas-has-inline-mask > .mindvas-mask-preview,
+.canvas-node[data-mindvas-inline-mask] > .mindvas-mask-preview {
+	z-index: 2147483646;
+}
+
+.canvas-node .mindvas-mask-tape {
+	z-index: 10000;
+}
+
+.mindvas-inline-text {
+	white-space: pre-wrap;
+}
+
+.mindvas-inline-tape,
+.mindvas-cm-tape {
+	display: inline-block;
+	vertical-align: baseline;
+	margin: 0 2px;
+	padding: 2px 10px;
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 0.85em;
+	line-height: 1.4;
+	touch-action: manipulation;
+	pointer-events: auto;
+	position: relative;
+	z-index: 2;
+	background-color: rgba(120, 170, 255, 0.93);
+	background-image: repeating-linear-gradient(
+		-42deg,
+		transparent,
+		transparent 4px,
+		rgba(255, 255, 255, 0.12) 4px,
+		rgba(255, 255, 255, 0.12) 8px
+	);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.mindvas-note-mask .mindvas-inline-tape {
+	min-height: 1.4em;
+	min-width: 2.5em;
+}
+
+/* Mask colors */
+.mindvas-mask-yellow.mindvas-inline-tape,
+.mindvas-mask-yellow.mindvas-cm-tape,
+.mindvas-mask-yellow.mindvas-mask-tape {
+	background-color: rgba(255, 214, 64, 0.93);
+}
+.mindvas-mask-yellow.mindvas-inline-revealed {
+	background: rgba(255, 214, 64, 0.22);
+}
+.mindvas-mask-yellow.mindvas-mask-tape.is-revealed {
+	background-color: rgba(255, 214, 64, 0.75);
+	color: #5c4a00;
+}
+
+.mindvas-mask-red.mindvas-inline-tape,
+.mindvas-mask-red.mindvas-cm-tape,
+.mindvas-mask-red.mindvas-mask-tape {
+	background-color: rgba(255, 120, 120, 0.93);
+}
+.mindvas-mask-red.mindvas-inline-revealed {
+	background: rgba(255, 120, 120, 0.22);
+}
+.mindvas-mask-red.mindvas-mask-tape.is-revealed {
+	background-color: rgba(255, 120, 120, 0.75);
+	color: #5a1515;
+}
+
+.mindvas-mask-blue.mindvas-inline-tape,
+.mindvas-mask-blue.mindvas-cm-tape,
+.mindvas-mask-blue.mindvas-mask-tape {
+	background-color: rgba(120, 170, 255, 0.93);
+}
+.mindvas-mask-blue.mindvas-inline-revealed {
+	background: rgba(120, 170, 255, 0.22);
+}
+.mindvas-mask-blue.mindvas-mask-tape.is-revealed {
+	background-color: rgba(120, 170, 255, 0.75);
+	color: #152a5a;
+}
+
+.mindvas-mask-green.mindvas-inline-tape,
+.mindvas-mask-green.mindvas-cm-tape,
+.mindvas-mask-green.mindvas-mask-tape {
+	background-color: rgba(120, 210, 140, 0.93);
+}
+.mindvas-mask-green.mindvas-inline-revealed {
+	background: rgba(120, 210, 140, 0.22);
+}
+.mindvas-mask-green.mindvas-mask-tape.is-revealed {
+	background-color: rgba(120, 210, 140, 0.75);
+	color: #155a28;
+}

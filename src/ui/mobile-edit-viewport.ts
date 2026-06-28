@@ -140,6 +140,9 @@ export function registerMobileEditViewportLock(canvas: Canvas): () => void {
 		const target = e.target as HTMLElement;
 		if (!target.closest(".canvas-node")) return;
 		if (target.closest(".mindvas-fold-chevron")) return;
+		if (target.closest(".mindvas-mask-tape")) return;
+		if (target.closest(".mindvas-inline-tape")) return;
+		if (target.closest(".mindvas-mask-preview")) return;
 		// Remember viewport before Obsidian opens the editor — do not lock yet.
 		preEditSnapshot = snapshot();
 	};

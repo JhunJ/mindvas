@@ -20,10 +20,27 @@ import { OutlineView, OUTLINE_VIEW_TYPE } from "./ui/outline-view";
 import { freemindToCanvas } from "./import/freemind-import";
 import { getGroupIds, buildForest, findTreeForNode } from "./mindmap/tree-model";
 import { registerBranchFoldHandler, refreshBranchFoldUI, toggleBranchFold, collapseAllBranches, expandAllBranches } from "./mindmap/branch-fold";
+import {
+	registerCanvasMaskHandler,
+	refreshCanvasMaskUI,
+	refreshAllCanvasMasks,
+	coverAllMasks,
+} from "./mask/mask-canvas";
+import { buildNodeMaskMenu } from "./mask/mask-toolbar";
+import { registerNoteMaskSupport } from "./mask/mask-note";
+import {
+	registerCanvasMarkdownMaskProcessor,
+	registerAdvancedCanvasMaskHooks,
+} from "./mask/mask-canvas-preview";
+import { registerMaskClickDelegation, setMaskCanvasRefresh } from "./mask/mask-clicks";
+import { registerMaskContextMenu } from "./mask/mask-context";
+import { rememberMaskSelection, resolveMaskTargetNode, registerGlobalCanvasSelectionTracking } from "./mask/mask-selection";
+import { applyMaskToNode } from "./mask/mask-action";
 import { MobileToolbar } from "./ui/mobile-toolbar";
 import { isMobileApp, isPhone, isTablet, syncMobileBodyClass, safeRun, ensureOutlineLeaf, expandRightSidebar } from "./ui/mobile-utils";
 import { registerMobileEditViewportLock } from "./ui/mobile-edit-viewport";
 import { arrowShortcutExtension } from "./ui/arrow-shortcut";
+import { maskEditorExtension } from "./mask/mask-editor-extension";
 
 export default class CanvasMindMapPlugin extends Plugin {
 	settings: MindMapSettings = DEFAULT_SETTINGS;
@@ -65,6 +82,8 @@ export default class CanvasMindMapPlugin extends Plugin {
 	private lastNavCanvas: Canvas | null = null;
 	private cleanupNavHandler: (() => void) | null = null;
 	private cleanupBranchFoldHandler: (() => void) | null = null;
+	private canvasMaskHandlerCleanups = new Map<Canvas, () => void>();
+	private cleanupGlobalMaskSelectionHandler: (() => void) | null = null;
 	private cleanupMobileEditViewportHandler: (() => void) | null = null;
 	private mobileToolbar: MobileToolbar | null = null;
 
@@ -74,8 +93,28 @@ export default class CanvasMindMapPlugin extends Plugin {
 			syncMobileBodyClass();
 			this.initServices();
 			this.registerEditorExtension(arrowShortcutExtension());
+			this.registerEditorExtension(maskEditorExtension());
 			this.registerCommands();
 			this.registerWorkspaceHandlers();
+			registerNoteMaskSupport(this);
+			registerCanvasMarkdownMaskProcessor(this);
+			registerAdvancedCanvasMaskHooks(this);
+			registerMaskClickDelegation(this);
+			setMaskCanvasRefresh(() => refreshAllCanvasMasks(this.app));
+			this.app.workspace.onLayoutReady(() => {
+				this.ensureCanvasMaskHandlers();
+				refreshAllCanvasMasks(this.app);
+				window.setTimeout(() => refreshAllCanvasMasks(this.app), 600);
+				window.setTimeout(() => refreshAllCanvasMasks(this.app), 2000);
+			});
+			registerMaskContextMenu(
+				this,
+				() => this.canvasApi.getActiveCanvas() ?? this.canvasApi.getAnyCanvas(),
+				() => refreshAllCanvasMasks(this.app)
+			);
+			this.cleanupGlobalMaskSelectionHandler = registerGlobalCanvasSelectionTracking(
+				() => this.canvasApi.getActiveCanvas() ?? this.canvasApi.getAnyCanvas()
+			);
 			this.addSettingTab(new MindMapSettingTab(this.app, this));
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -320,6 +359,32 @@ export default class CanvasMindMapPlugin extends Plugin {
 			name: "Import mind map (.mm) file to canvas",
 			callback: () => this.importFreeMindFile(),
 		});
+
+		// ── 마스킹 ──
+		this.addCommand({
+			id: "mindmap-toggle-node-mask",
+			name: "가리기",
+			checkCallback: (checking: boolean) => {
+				const canvas = this.canvasApi.getActiveCanvas();
+				if (!canvas) return false;
+				const node = resolveMaskTargetNode(canvas, this.canvasApi);
+				if (!node) return false;
+				if (checking) return true;
+				applyMaskToNode(canvas, node, this.getCanvasPath(canvas), this.app);
+			},
+		});
+
+		this.addCommand({
+			id: "mindmap-cover-all-masks",
+			name: "전부 다시 가리기",
+			checkCallback: (checking: boolean) => {
+				const canvas = this.canvasApi.getActiveCanvas();
+				if (!canvas) return false;
+				if (checking) return true;
+				coverAllMasks(canvas);
+				this.refreshMask(canvas);
+			},
+		});
 	}
 
 	private registerWorkspaceHandlers(): void {
@@ -343,6 +408,20 @@ export default class CanvasMindMapPlugin extends Plugin {
 			}
 		});
 
+		this.registerEvent(
+			this.app.workspace.on("layout-change", () => {
+				this.debouncedMaskRefresh();
+			})
+		);
+
+		this.registerEvent(
+			this.app.vault.on("modify", (file) => {
+				if (file instanceof TFile && file.extension === "md") {
+					this.debouncedMaskRefresh();
+				}
+			})
+		);
+
 		// Import FreeMind: right-click context menu on folders
 		this.registerEvent(
 			this.app.workspace.on("file-menu", (menu, file) => {
@@ -360,8 +439,9 @@ export default class CanvasMindMapPlugin extends Plugin {
 		safeRun("canvas:node-menu registration", () => {
 			this.registerEvent(
 				this.app.workspace.on("canvas:node-menu", (menu: Menu, node: CanvasNode) => {
-					const canvas = this.canvasApi.getActiveCanvas();
-					const mindmap = canvas && this.isMindmapCanvas(canvas);
+					const canvas = node.canvas;
+					const mindmap = this.isMindmapCanvas(canvas);
+					const canvasPath = canvas.view?.file?.path ?? "";
 
 					menu.addItem((item) => {
 						item.setTitle("Copy node link")
@@ -373,7 +453,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 							});
 					});
 
-					if (mindmap && canvas) {
+					if (mindmap) {
 						menu.addItem((item) => {
 							item.setTitle("Zoom to branch")
 								.setIcon("maximize")
@@ -394,7 +474,18 @@ export default class CanvasMindMapPlugin extends Plugin {
 						}
 					}
 
-					if (canvas) {
+					if (node.type === "text" || node.type === "file") {
+						buildNodeMaskMenu(
+							menu,
+							canvas,
+							node,
+							canvasPath,
+							this.app,
+							() => this.refreshMask(canvas)
+						);
+					}
+
+					{
 						const groupIds = getGroupIds(canvas);
 						if (groupIds.has(node.id)) {
 							menu.addItem((item) => {
@@ -527,6 +618,11 @@ export default class CanvasMindMapPlugin extends Plugin {
 			this.cleanupBranchFoldHandler();
 			this.cleanupBranchFoldHandler = null;
 		}
+		this.clearAllCanvasMaskHandlers();
+		if (this.cleanupGlobalMaskSelectionHandler) {
+			this.cleanupGlobalMaskSelectionHandler();
+			this.cleanupGlobalMaskSelectionHandler = null;
+		}
 		if (this.cleanupMobileEditViewportHandler) {
 			this.cleanupMobileEditViewportHandler();
 			this.cleanupMobileEditViewportHandler = null;
@@ -594,6 +690,12 @@ export default class CanvasMindMapPlugin extends Plugin {
 			this.cleanupBranchFoldHandler();
 			this.cleanupBranchFoldHandler = null;
 		}
+		// Mask handlers stay on every open canvas tab (split / background panes).
+		this.ensureCanvasMaskHandlers();
+		if (this.cleanupGlobalMaskSelectionHandler) {
+			this.cleanupGlobalMaskSelectionHandler();
+			this.cleanupGlobalMaskSelectionHandler = null;
+		}
 		if (this.cleanupMobileEditViewportHandler) {
 			this.cleanupMobileEditViewportHandler();
 			this.cleanupMobileEditViewportHandler = null;
@@ -653,6 +755,9 @@ export default class CanvasMindMapPlugin extends Plugin {
 				this.layoutEngine,
 				() => this.isMindmapCanvas(canvas)
 			);
+
+		// Masking tape — every open canvas tab (not only the focused leaf)
+		this.ensureCanvasMaskHandlers();
 
 		// Set up group drag handler (Alt+drag leaves stranger nodes behind)
 		this.cleanupGroupDragHandler =
@@ -845,14 +950,18 @@ export default class CanvasMindMapPlugin extends Plugin {
 		// Track selection changes for navigation history
 		canvas.selectOnly = (item: CanvasNode | CanvasEdge) => {
 			origSelectOnly(item);
-			if (!this.navSkipTracking && "nodeEl" in item) {
-				this.pushNavHistory(item.id);
+			if ("nodeEl" in item) {
+				rememberMaskSelection(canvas, item as CanvasNode);
+				if (!this.navSkipTracking) {
+					this.pushNavHistory(item.id);
+				}
 			}
 		};
 
 		canvas.requestSave = () => {
 			origSave();
 			this.debouncedOutlineRefresh();
+			this.debouncedMaskRefresh();
 		};
 		canvas.createGroupNode = (options: CreateNodeOptions & { label?: string }) => {
 			const group = origCreateGroup(options);
@@ -897,6 +1006,38 @@ export default class CanvasMindMapPlugin extends Plugin {
 			}
 		}
 	}, 300);
+
+	private debouncedMaskRefresh = debounce(() => {
+		if (this.unloaded) return;
+		refreshAllCanvasMasks(this.app);
+		this.ensureCanvasMaskHandlers();
+	}, 150);
+
+	private clearAllCanvasMaskHandlers(): void {
+		for (const cleanup of this.canvasMaskHandlerCleanups.values()) cleanup();
+		this.canvasMaskHandlerCleanups.clear();
+	}
+
+	private ensureCanvasMaskHandlers(): void {
+		const open = new Set<Canvas>();
+		for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
+			const canvas = (leaf.view as { canvas?: Canvas }).canvas;
+			if (!canvas) continue;
+			open.add(canvas);
+			if (this.canvasMaskHandlerCleanups.has(canvas)) continue;
+			const canvasPath = canvas.view?.file?.path ?? "";
+			this.canvasMaskHandlerCleanups.set(
+				canvas,
+				registerCanvasMaskHandler(canvas, canvasPath, this.app)
+			);
+		}
+		for (const [canvas, cleanup] of this.canvasMaskHandlerCleanups) {
+			if (!open.has(canvas)) {
+				cleanup();
+				this.canvasMaskHandlerCleanups.delete(canvas);
+			}
+		}
+	}
 
 	private refreshOutline(canvas: Canvas): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(OUTLINE_VIEW_TYPE)) {
@@ -1289,6 +1430,15 @@ export default class CanvasMindMapPlugin extends Plugin {
 		const data = canvas.getData();
 		if (typeof data.mindmap === 'boolean') return data.mindmap;
 		return this.settings.defaultMindmapMode;
+	}
+
+	private getCanvasPath(canvas: Canvas): string {
+		return canvas.view?.file?.path ?? "";
+	}
+
+	private refreshMask(canvas: Canvas): void {
+		refreshCanvasMaskUI(canvas, this.getCanvasPath(canvas), this.app);
+		canvas.requestFrame();
 	}
 
 	private toggleMindmapMode(canvas: Canvas): void {

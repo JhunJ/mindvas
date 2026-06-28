@@ -28,7 +28,7 @@ export interface CanvasNode {
 	height: number;
 	color: string;
 	text: string;
-	type: "text" | "file" | "link" | "group";
+	type?: "text" | "file" | "link" | "group";
 	/** Vault path for file nodes (runtime). */
 	file?: string;
 	url?: string;
@@ -53,6 +53,8 @@ export interface CanvasNode {
 	blur(): void;
 	focus(): void;
 	getBBox(): { minX: number; minY: number; maxX: number; maxY: number };
+	getData?(): CanvasNodeFileData & Record<string, unknown>;
+	setData?(data: CanvasNodeFileData & Record<string, unknown>, addHistory?: boolean): void;
 }
 
 export interface CanvasEdge {
@@ -150,6 +152,8 @@ export interface CanvasFileData {
 	mindmap?: boolean;
 	/** Parent node IDs whose child branches are collapsed. */
 	collapsedBranches?: string[];
+	/** Mask review statistics (correct/wrong counts). */
+	mindvasMaskStats?: Record<string, { correct: number; wrong: number; lastReview?: string }>;
 }
 
 export interface CanvasNodeFileData {
@@ -190,6 +194,7 @@ export interface CMEditorView {
 	state: {
 		selection: { main: { from: number; to: number } };
 		sliceDoc: (from: number, to: number) => string;
+		doc: { length: number; toString(): string };
 	};
 	dispatch: (tr: { changes: { from: number; to: number; insert: string } }) => void;
 }

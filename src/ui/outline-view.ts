@@ -3,6 +3,7 @@ import type { Canvas, CanvasNode, CanvasView as CanvasViewType } from "../types/
 import { buildForest, TreeNode, getDescendants, getGroupIds } from "../mindmap/tree-model";
 import { getCollapsedBranches, areAllBranchesCollapsed } from "../mindmap/branch-fold";
 import { isMobileApp } from "./mobile-utils";
+import { getNodeMaskIndicator } from "../mask/mask-note";
 import { attachContentEditableArrowShortcut } from "./arrow-shortcut";
 
 export const OUTLINE_VIEW_TYPE = "mindvas-outline";
@@ -332,9 +333,11 @@ export class OutlineView extends ItemView {
 			self.createDiv({ cls: "tree-item-icon" });
 		}
 
+		const title = getNodeTitle(this.app, canvas, node.canvasNode);
+		const badge = getNodeMaskIndicator(canvas, node.canvasNode.id, node.canvasNode.text);
 		self.createDiv({
 			cls: "tree-item-inner",
-			text: getNodeTitle(this.app, canvas, node.canvasNode),
+			text: badge ? `${badge} ${title}` : title,
 		});
 
 		if (opts.isRoot) {

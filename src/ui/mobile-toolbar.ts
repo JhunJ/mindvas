@@ -14,6 +14,7 @@ const TOOLBAR_ACTIONS: ToolbarAction[] = [
 	{ id: "child", icon: "plus", label: "Add child", commandId: "mindvas:mindmap-add-child" },
 	{ id: "sibling", icon: "corner-down-left", label: "Add sibling", commandId: "mindvas:mindmap-add-sibling" },
 	{ id: "fold", icon: "chevrons-down-up", label: "Toggle branch fold", commandId: "mindvas:mindmap-toggle-branch-fold" },
+	{ id: "mask", icon: "bandage", label: "가리기", commandId: "mindvas:mindmap-toggle-node-mask" },
 	{ id: "nav-left", icon: "arrow-left", label: "Navigate left", commandId: "mindvas:mindmap-nav-left" },
 	{ id: "nav-up", icon: "arrow-up", label: "Navigate up", commandId: "mindvas:mindmap-nav-prev-sibling" },
 	{ id: "nav-down", icon: "arrow-down", label: "Navigate down", commandId: "mindvas:mindmap-nav-next-sibling" },
