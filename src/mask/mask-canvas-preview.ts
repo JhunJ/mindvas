@@ -16,7 +16,7 @@ import {
 } from "./mask-dom";
 import { applyMasksFromSource, cleanupMaskTagRemnants } from "./mask-source";
 import { getMaskCanvasRefresh } from "./mask-clicks";
-import { isTextCardReadMode, syncTextCardReadMask } from "./mask-canvas-text";
+import { isTextCardReadMode, syncTextCardReadMask, clearTextCardOverlay } from "./mask-canvas-text";
 import { isTextCanvasNode, isFileCanvasNode, isMaskableCanvasNode } from "./mask-canvas-node";
 
 function resolveCanvasFilePath(node: CanvasNode): string | null {
@@ -161,7 +161,9 @@ export function registerAdvancedCanvasMaskHooks(plugin: Plugin): void {
 				const isEditing = editing === true;
 				window.setTimeout(() => {
 					getMaskCanvasRefresh()?.();
-					if (!isEditing && isTextCanvasNode(n)) {
+					if (isEditing && isTextCanvasNode(n)) {
+						clearTextCardOverlay(n);
+					} else if (!isEditing && isTextCanvasNode(n)) {
 						const canvasPath = n.canvas.view?.file?.path ?? "";
 						syncTextCardReadMask(n, canvasPath);
 					}

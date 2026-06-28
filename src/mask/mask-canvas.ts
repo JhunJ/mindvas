@@ -371,7 +371,7 @@ function syncOneNode(
 		if (fixed !== node.text) node.setText(fixed);
 	}
 
-	if (isTextCanvasNode(node) && isTextCardEditing(node)) {
+	if (isTextCanvasNode(node) && (node.isEditing || isTextCardEditing(node))) {
 		removeWholeNodeOverlay(node);
 		removeInlinePreview(node);
 		scanCanvasEditingNodes([node]);
@@ -621,7 +621,7 @@ export function registerCanvasMaskHandler(
 	const maintainInterval = window.setInterval(() => {
 		for (const node of canvas.nodes.values()) {
 			if (!isMaskableCanvasNode(node)) continue;
-			if (isTextCanvasNode(node) && isTextCardEditing(node)) continue;
+			if (isTextCanvasNode(node) && (node.isEditing || isTextCardEditing(node))) continue;
 			if (!isTextCanvasNode(node) && node.isEditing) continue;
 			if (!node.nodeEl && !isTextCanvasNode(node)) continue;
 			if (isTextCanvasNode(node) && !resolveTextCardHost(node)) continue;

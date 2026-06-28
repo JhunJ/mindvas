@@ -512,21 +512,30 @@ body.mindvas-mobile .mindvas-mask-tape {
 	display: none !important;
 }
 
-/* In-preview masks: keep native markdown + card color/theme visible */
-.canvas-node[data-mindvas-preview-masked] > .canvas-node-container,
-.canvas-node[data-mindvas-preview-masked] .markdown-embed-content,
-.canvas-node[data-mindvas-preview-masked] .markdown-preview-view {
+/* In-preview masks: keep native markdown + card color/theme visible (read mode only) */
+.canvas-node[data-mindvas-preview-masked]:not(.is-editing) > .canvas-node-container,
+.canvas-node[data-mindvas-preview-masked]:not(.is-editing) .markdown-embed-content,
+.canvas-node[data-mindvas-preview-masked]:not(.is-editing) .markdown-preview-view {
 	display: block !important;
 	visibility: visible !important;
 	opacity: 1 !important;
 	pointer-events: auto !important;
 }
 
-.canvas-node[data-mindvas-preview-masked] [data-mindvas-hidden] {
+.canvas-node[data-mindvas-preview-masked]:not(.is-editing) [data-mindvas-hidden] {
 	display: revert !important;
 	visibility: visible !important;
 	opacity: 1 !important;
 	pointer-events: auto !important;
+}
+
+/* Edit mode: never let read-mode preview sit above CodeMirror */
+.canvas-node.is-editing[data-mindvas-preview-masked] .markdown-preview-view,
+.canvas-node.is-editing[data-mindvas-preview-masked] .markdown-preview-sizer,
+.canvas-node.is-editing[data-mindvas-preview-masked] .mindvas-inline-mask-wrap {
+	display: none !important;
+	visibility: hidden !important;
+	pointer-events: none !important;
 }
 
 .canvas-node.mindvas-has-inline-mask .markdown-embed-content:not(.mindvas-mask-preview),

@@ -84,18 +84,25 @@ function hasVisibleCodeMirror(node: CanvasNode): boolean {
 
 export function isTextCardEditing(node: CanvasNode): boolean {
 	if (!isTextCanvasNode(node)) return node.isEditing;
-	// Stuck is-editing flag while preview is showing — treat as read mode.
-	if (hasVisibleTextCardPreview(node)) return false;
 	if (!node.nodeEl) return node.isEditing;
+
+	// Definite edit signals — must win over read-mode preview left in DOM.
+	if (node.nodeEl.classList.contains("is-editing")) return true;
 	if (hasVisibleCodeMirror(node)) return true;
-	if (node.isEditing || node.nodeEl.classList.contains("is-editing")) return true;
+
+	const active = document.activeElement;
+	if (active && node.nodeEl.contains(active) && active.closest(".cm-editor")) return true;
+	if (node.isEditing) return true;
+
+	// Stuck is-editing flag after blur — preview back, no editor.
+	if (hasVisibleTextCardPreview(node)) return false;
+
 	return false;
 }
 
 /** True when the card shows rendered markdown (not the CodeMirror editor). */
 export function isTextCardReadMode(node: CanvasNode): boolean {
 	if (!isTextCanvasNode(node)) return !node.isEditing;
-	if (hasVisibleTextCardPreview(node)) return true;
 	return !isTextCardEditing(node);
 }
 
@@ -346,7 +353,7 @@ export function syncAllTextCardMasksOnCanvas(canvasPath: string, nodes: Iterable
 		if (!isTextCanvasNode(node)) continue;
 		const content = getCanvasNodeMaskSource(node);
 		if (!hasInlineMasks(content)) continue;
-		if (isTextCardEditing(node) && !hasVisibleTextCardPreview(node)) continue;
+		if (node.isEditing || isTextCardEditing(node)) continue;
 		syncTextCardReadMask(node, canvasPath);
 	}
 }
