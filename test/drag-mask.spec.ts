@@ -97,6 +97,51 @@ async function dragFromPoint(page: Page, x: number, y: number, dx: number, dy: n
 	);
 }
 
+/**
+ * Long-press then drag: finger goes down, holds STILL past the gesture-idle
+ * window (no pointermove), then a mask restore fires, then the card is dragged.
+ * This models the real Galaxy-Tab long-press (press, pause, move) that the
+ * pointermove-only suppression missed. `holdMs` should exceed GESTURE_IDLE.
+ */
+async function longPressDrag(page: Page, selector: string, dx: number, dy: number, dropId: string): Promise<void> {
+	await page.evaluate(
+		({ selector, x0 }) => {
+			const el = document.querySelector(selector) as HTMLElement;
+			const r = el.getBoundingClientRect();
+			const cx = r.left + r.width / 2;
+			const cy = r.top + r.height / 2;
+			(window as any).__lp = { el, cx, cy };
+			el.dispatchEvent(
+				new PointerEvent("pointerdown", { pointerId: 1, pointerType: "touch", clientX: cx, clientY: cy, bubbles: true, cancelable: true })
+			);
+			void x0;
+		},
+		{ selector, x0: 0 }
+	);
+	// Hold still, longer than the idle window — during a real long-press no
+	// pointermove events fire here.
+	await page.waitForTimeout(340);
+	await page.evaluate((dropId) => {
+		// Obsidian drops the overlay and maintenance tries to restore it while the
+		// finger is still down (the imminent drag must survive).
+		(window as any).harness.externalReRender(dropId);
+		(window as any).harness.runMaintenanceSweep();
+	}, dropId);
+	await page.evaluate(
+		({ dx, dy }) => {
+			const { el, cx, cy } = (window as any).__lp as { el: HTMLElement; cx: number; cy: number };
+			const fire = (t: string, x: number, y: number) =>
+				el.dispatchEvent(
+					new PointerEvent(t, { pointerId: 1, pointerType: "touch", clientX: x, clientY: y, bubbles: true, cancelable: true })
+				);
+			const steps = 5;
+			for (let i = 1; i <= steps; i++) fire("pointermove", cx + (dx * i) / steps, cy + (dy * i) / steps);
+			fire("pointerup", cx + dx, cy + dy);
+		},
+		{ dx, dy }
+	);
+}
+
 const cardSel = (id: string) => `.canvas-node[data-id="${id}"]`;
 const inlineSel = (id: string) => `${cardSel(id)} .mindvas-inline-mask-wrap`;
 
@@ -182,6 +227,25 @@ test("control: suppression OFF lets a mid-drag mask restore cancel the drag", as
 	await reset(page, false);
 	const before = await getState(page, "A");
 	await dragEl(page, cardSel("A"), 150, 0, { midDropAndSweep: "A" });
+	const after = await getState(page, "A");
+	expect(after.dragCancelled).toBe(true);
+	expect(after.x).toBeLessThan(before.x + 150);
+});
+
+// --- long-press then drag (the "됐다가 뭘 건드리면 안 되는" bug) ---
+
+test("long-press: holding still past the idle window then dragging is not cancelled", async ({ page }) => {
+	const before = await getState(page, "A");
+	await longPressDrag(page, cardSel("A"), 150, 0, "A");
+	const after = await getState(page, "A");
+	expect(after.dragCancelled).toBe(false);
+	expect(after.x).toBeCloseTo(before.x + 150, 0);
+});
+
+test("control: with suppression OFF, a long-press hold lets the restore cancel the drag", async ({ page }) => {
+	await reset(page, false);
+	const before = await getState(page, "A");
+	await longPressDrag(page, cardSel("A"), 150, 0, "A");
 	const after = await getState(page, "A");
 	expect(after.dragCancelled).toBe(true);
 	expect(after.x).toBeLessThan(before.x + 150);

@@ -52,6 +52,7 @@ const wrapper = document.getElementById("canvas-wrapper") as HTMLElement;
 const cards = new Map<string, { el: HTMLElement; state: CardState }>();
 
 let interacting = false;
+let pointerHeld = false;
 let idleTimer: number | null = null;
 let activeDrag: DragCtx | null = null;
 let boxSelecting = false;
@@ -65,8 +66,14 @@ function markInteracting(): void {
 	interacting = true;
 	if (idleTimer !== null) window.clearTimeout(idleTimer);
 	idleTimer = window.setTimeout(() => {
-		interacting = false;
 		idleTimer = null;
+		// A long-press holds still (no pointermove) before the drag begins; keep
+		// suppressing while the finger is down so the imminent drag isn't cancelled.
+		if (pointerHeld) {
+			markInteracting();
+			return;
+		}
+		interacting = false;
 	}, GESTURE_IDLE);
 }
 
@@ -121,14 +128,16 @@ function renderContent(entry: { el: HTMLElement; state: CardState }, withMask: b
 	else entry.el.appendChild(content);
 }
 
-/** Rebuild content (replaces the content element). A rebuild during an ACTIVE
- * MOVING drag loses the pointer stream and cancels the drag — regardless of
- * whether the rebuild re-adds the mask. A stationary tap (moved=false) does not
- * count as a drag, so tapping to reveal never self-cancels. */
+/** Rebuild content (replaces the content element). A rebuild that happens while
+ * a finger is still down on the card — either already moving, or held still
+ * before a long-press drag begins — churns the DOM under the pointer and cancels
+ * the (imminent) native drag, regardless of whether the mask is re-added. A
+ * stationary tap (pointer already released, activeDrag cleared) does not count,
+ * so tapping to reveal never self-cancels. */
 function rebuild(id: string, withMask: boolean): void {
 	const entry = cards.get(id);
 	if (!entry) return;
-	const cancels = activeDrag?.id === id && activeDrag.moved;
+	const cancels = activeDrag?.id === id && (activeDrag.moved || pointerHeld);
 	renderContent(entry, withMask);
 	if (cancels) {
 		entry.state.dragCancelled = true;
@@ -171,6 +180,7 @@ function createCard(s: CardState): void {
 		if (activeDrag && activeDrag.id === s.id) activeDrag = null;
 	});
 	el.addEventListener("pointercancel", () => {
+		markInteracting();
 		if (activeDrag && activeDrag.id === s.id) activeDrag = null;
 	});
 
@@ -203,6 +213,15 @@ function intersects(s: CardState, x0: number, y0: number, x1: number, y1: number
 }
 
 function initBoxSelect(): void {
+	// Track "a finger is down" at the WRAPPER in the CAPTURE phase, mirroring the
+	// production mask-canvas listeners (capture: true). Capture runs before any
+	// bubble-phase tap handler on a card/inline mask, so pointerHeld is already
+	// cleared by the time an onTap fires — a tap-to-reveal never counts as a held
+	// drag, while a long-press (finger still down during a sweep) correctly does.
+	wrapper.addEventListener("pointerdown", () => { pointerHeld = true; markInteracting(); }, true);
+	wrapper.addEventListener("pointerup", () => { pointerHeld = false; markInteracting(); }, true);
+	wrapper.addEventListener("pointercancel", () => { pointerHeld = false; markInteracting(); }, true);
+
 	wrapper.addEventListener("pointerdown", (e) => {
 		markInteracting();
 		// A pointerdown that lands on a card (target is the wrapper only for empty
@@ -224,6 +243,9 @@ function initBoxSelect(): void {
 	wrapper.addEventListener("pointerup", () => {
 		boxSelecting = false;
 	});
+	wrapper.addEventListener("pointercancel", () => {
+		boxSelecting = false;
+	});
 }
 
 interface HarnessApi {
@@ -239,7 +261,7 @@ interface HarnessApi {
 /** Idle maintenance: restore a mask overlay that went missing (self-heal), and
  * skip while a touch is in progress if suppression is on. */
 function runMaintenanceSweep(): void {
-	if (config.suppressDuringTouch && interacting) return;
+	if (config.suppressDuringTouch && (interacting || pointerHeld)) return;
 	for (const entry of cards.values()) {
 		const s = entry.state;
 		const needsMask = s.kind === "whole" || s.kind === "inline";
@@ -250,6 +272,11 @@ function runMaintenanceSweep(): void {
 function reset(cfg: Partial<HarnessConfig>): void {
 	config = { suppressDuringTouch: true, ...cfg };
 	interacting = false;
+	pointerHeld = false;
+	if (idleTimer !== null) {
+		window.clearTimeout(idleTimer);
+		idleTimer = null;
+	}
 	activeDrag = null;
 	boxSelecting = false;
 	lastGesture = "none";

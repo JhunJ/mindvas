@@ -583,6 +583,7 @@ export function registerCanvasMaskHandler(
 
 	let syncing = false;
 	let interacting = false;
+	let pointerHeld = false;
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	let gestureTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -591,7 +592,7 @@ export function registerCanvasMaskHandler(
 		// Obsidian is dragging a node (isDragging) — re-rendering a card mid-drag
 		// cancels the drag on touch devices. isDragging is the robust signal that
 		// works on all platforms regardless of pointer/touch event quirks.
-		if (syncing || interacting || canvas.isDragging) return;
+		if (syncing || interacting || pointerHeld || canvas.isDragging) return;
 		syncing = true;
 		try {
 			syncCanvasMaskUI(canvas, canvasPath, app);
@@ -615,11 +616,19 @@ export function registerCanvasMaskHandler(
 	const refresh = () => scheduleSync();
 
 	// A pointer/wheel gesture is in progress — suppress sync until it settles.
+	// While a finger is still down (pointerHeld), keep re-arming: a long-press
+	// holds still (no pointermove) for a while before the drag begins, and if we
+	// let sync resume during that stillness a re-render would cancel the imminent
+	// drag. This was the "works, then breaks when I touch something" bug.
 	const markInteracting = () => {
 		interacting = true;
 		if (gestureTimer) clearTimeout(gestureTimer);
 		gestureTimer = setTimeout(() => {
 			gestureTimer = null;
+			if (pointerHeld) {
+				markInteracting();
+				return;
+			}
 			interacting = false;
 			scheduleSync();
 		}, GESTURE_IDLE);
@@ -628,17 +637,26 @@ export function registerCanvasMaskHandler(
 	const wrapper = canvas.wrapperEl;
 	const gestureOpts = { passive: true, capture: true } as AddEventListenerOptions;
 	const onGesture = () => markInteracting();
+	const onPointerDown = () => {
+		pointerHeld = true;
+		markInteracting();
+	};
+	const onPointerRelease = () => {
+		pointerHeld = false;
+		markInteracting();
+	};
 	// All mobile (phones + tablets): passive pointer tracking so any in-progress
-	// touch (card drag, box-select, pan) suppresses the maintenance-interval sync
-	// that would otherwise re-render a card mid-drag and cancel it. Purely passive
-	// — preventDefault is never called, so native gestures stay intact. touchmove
-	// is intentionally omitted (it previously interfered with drag-to-select);
-	// pointermove covers the same "still moving" signal. Desktop uses no listeners
-	// (its requestFrame hook handles sync and mouse drags survive re-renders).
+	// touch (card drag, long-press, box-select, pan) suppresses the maintenance
+	// sync that would otherwise re-render a card mid-gesture and cancel it. Purely
+	// passive — preventDefault is never called, so native gestures stay intact.
+	// touchmove is intentionally omitted (it previously interfered with drag-to-
+	// select). Desktop uses no listeners (its requestFrame hook handles sync and
+	// mouse drags survive re-renders).
 	if (mobile) {
-		wrapper?.addEventListener("pointerdown", onGesture, gestureOpts);
+		wrapper?.addEventListener("pointerdown", onPointerDown, gestureOpts);
 		wrapper?.addEventListener("pointermove", onGesture, gestureOpts);
-		wrapper?.addEventListener("pointerup", onGesture, gestureOpts);
+		wrapper?.addEventListener("pointerup", onPointerRelease, gestureOpts);
+		wrapper?.addEventListener("pointercancel", onPointerRelease, gestureOpts);
 		wrapper?.addEventListener("wheel", onGesture, gestureOpts);
 	}
 
@@ -669,7 +687,7 @@ export function registerCanvasMaskHandler(
 	setTimeout(runSync, 0);
 
 	const observer = new MutationObserver((records) => {
-		if (interacting || canvas.isDragging) return;
+		if (interacting || pointerHeld || canvas.isDragging) return;
 		const fromMask = records.some((r) => {
 			const el = (r.target as Node).nodeType === Node.ELEMENT_NODE
 				? (r.target as HTMLElement)
@@ -705,7 +723,7 @@ export function registerCanvasMaskHandler(
 	let tick = 0;
 	const bootMax = mobile ? 8 : 16;
 	const bootInterval = window.setInterval(() => {
-		if (!interacting && !canvas.isDragging) {
+		if (!interacting && !pointerHeld && !canvas.isDragging) {
 			runSync();
 			scanCanvasEditingNodes(canvas.nodes.values());
 		}
@@ -713,13 +731,13 @@ export function registerCanvasMaskHandler(
 	}, mobile ? 500 : 400);
 
 	const editScanInterval = window.setInterval(() => {
-		if (interacting || canvas.isDragging) return;
+		if (interacting || pointerHeld || canvas.isDragging) return;
 		scanCanvasEditingNodes(canvas.nodes.values());
 	}, mobile ? 900 : 500);
 
 	// Idle self-heal: only re-apply masks that went missing (e.g. after rerender).
 	const maintainInterval = window.setInterval(() => {
-		if (interacting || canvas.isDragging) return;
+		if (interacting || pointerHeld || canvas.isDragging) return;
 		for (const node of canvas.nodes.values()) {
 			if (!isMaskableCanvasNode(node)) continue;
 			if (isTextCanvasNode(node) && (node.isEditing || isTextCardEditing(node))) continue;
@@ -748,9 +766,10 @@ export function registerCanvasMaskHandler(
 		if (debounceTimer) clearTimeout(debounceTimer);
 		if (gestureTimer) clearTimeout(gestureTimer);
 		if (mobile) {
-			wrapper?.removeEventListener("pointerdown", onGesture, gestureOpts);
+			wrapper?.removeEventListener("pointerdown", onPointerDown, gestureOpts);
 			wrapper?.removeEventListener("pointermove", onGesture, gestureOpts);
-			wrapper?.removeEventListener("pointerup", onGesture, gestureOpts);
+			wrapper?.removeEventListener("pointerup", onPointerRelease, gestureOpts);
+			wrapper?.removeEventListener("pointercancel", onPointerRelease, gestureOpts);
 			wrapper?.removeEventListener("wheel", onGesture, gestureOpts);
 		}
 		observer.disconnect();
