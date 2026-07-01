@@ -542,15 +542,14 @@ export function registerCanvasMaskHandler(
 	const mobile = isMobileApp();
 	const tablet = mobile && !isPhone();
 
-	// Phones: event-based gesture-suppression sync. Desktop: requestFrame-override
-	// sync. Tablets: neither pointer listeners, a requestFrame hook, NOR a
-	// MutationObserver — those all re-rendered cards mid-gesture and cancelled
-	// native touch drag / box-select (canvas.isDragging isn't reliably set on
-	// mobile, so it can't guard the observer). Tablets rely solely on the
-	// idempotent self-heal interval below, which only touches cards whose mask
-	// went missing and never rewrites a card that's already correct — so an
-	// in-progress drag is never disturbed.
-	const useEventSync = mobile && isPhone();
+	// Sync strategy:
+	//  - Desktop: hook requestFrame to reapply masks per frame (safe with mouse).
+	//  - Mobile (phones + tablets): NO requestFrame hook. Instead, passive pointer
+	//    tracking marks `interacting` during any touch so the maintenance interval
+	//    never re-renders a card mid-drag (which cancels a native touch drag —
+	//    canvas.isDragging is unreliable on mobile so it can't guard alone).
+	//  - Tablets additionally skip the MutationObserver (its childList mutations
+	//    fire during select/drag/box-select and can't be guarded reliably).
 	// Debounce sync so pan/zoom (which fire requestFrame dozens of times/sec on
 	// mobile) never trigger a full node scan mid-gesture.
 	const SYNC_DEBOUNCE = mobile ? 250 : 100;
@@ -603,16 +602,18 @@ export function registerCanvasMaskHandler(
 	const wrapper = canvas.wrapperEl;
 	const gestureOpts = { passive: true, capture: true } as AddEventListenerOptions;
 	const onGesture = () => markInteracting();
-	// Phone-only pan/zoom sync suppression (performance). Tablets get NO pointer
-	// listeners: they broke Obsidian's drag-to-select on empty canvas, and card
-	// dragging is instead protected by the canvas.isDragging check in runSync.
-	// Desktop needs no listeners either (they previously regressed desktop drag).
-	if (useEventSync) {
+	// All mobile (phones + tablets): passive pointer tracking so any in-progress
+	// touch (card drag, box-select, pan) suppresses the maintenance-interval sync
+	// that would otherwise re-render a card mid-drag and cancel it. Purely passive
+	// — preventDefault is never called, so native gestures stay intact. touchmove
+	// is intentionally omitted (it previously interfered with drag-to-select);
+	// pointermove covers the same "still moving" signal. Desktop uses no listeners
+	// (its requestFrame hook handles sync and mouse drags survive re-renders).
+	if (mobile) {
 		wrapper?.addEventListener("pointerdown", onGesture, gestureOpts);
 		wrapper?.addEventListener("pointermove", onGesture, gestureOpts);
 		wrapper?.addEventListener("pointerup", onGesture, gestureOpts);
 		wrapper?.addEventListener("wheel", onGesture, gestureOpts);
-		wrapper?.addEventListener("touchmove", onGesture, gestureOpts);
 	}
 
 	// DESKTOP ONLY: hook requestFrame to reapply masks per frame (rAF-debounced).
@@ -720,12 +721,11 @@ export function registerCanvasMaskHandler(
 		window.clearInterval(maintainInterval);
 		if (debounceTimer) clearTimeout(debounceTimer);
 		if (gestureTimer) clearTimeout(gestureTimer);
-		if (useEventSync) {
+		if (mobile) {
 			wrapper?.removeEventListener("pointerdown", onGesture, gestureOpts);
 			wrapper?.removeEventListener("pointermove", onGesture, gestureOpts);
 			wrapper?.removeEventListener("pointerup", onGesture, gestureOpts);
 			wrapper?.removeEventListener("wheel", onGesture, gestureOpts);
-			wrapper?.removeEventListener("touchmove", onGesture, gestureOpts);
 		}
 		observer.disconnect();
 		app.vault.offref(onVaultChange);
