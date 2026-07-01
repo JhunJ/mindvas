@@ -1,6 +1,6 @@
 {
 	"name": "mindvas",
-	"version": "0.3.56",
+	"version": "0.3.57",
 	"description": "Turn Canvas into a powerful mind mapping tool",
 	"main": "main.js",
 	"scripts": {

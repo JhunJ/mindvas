@@ -818,13 +818,19 @@ export default class CanvasMindMapPlugin extends Plugin {
 			this.mobileToolbar?.mount(canvas);
 		}
 
-		// Set up drag-end edge update handler
-		this.cleanupDragHandler =
-			registerDragEndHandler(canvas);
+		// Node-drag pointer handlers interfere with native touch dragging on
+		// tablets, so tablets use Obsidian's native canvas drag/box-select
+		// completely untouched. Desktop + phones keep the mindmap conveniences
+		// (subtree drag moves descendants; edge sides auto-update).
+		if (!isTablet()) {
+			// Set up drag-end edge update handler
+			this.cleanupDragHandler =
+				registerDragEndHandler(canvas);
 
-		// Set up subtree drag handler (move descendants with parent)
-		this.cleanupSubtreeDragHandler =
-			registerSubtreeDragHandler(canvas, this.canvasApi);
+			// Set up subtree drag handler (move descendants with parent)
+			this.cleanupSubtreeDragHandler =
+				registerSubtreeDragHandler(canvas, this.canvasApi);
+		}
 
 		// Set up branch fold chevrons (HeptaBase-style collapse)
 		this.cleanupBranchFoldHandler =
@@ -837,52 +843,56 @@ export default class CanvasMindMapPlugin extends Plugin {
 		// Masking tape — every open canvas tab (not only the focused leaf)
 		this.ensureCanvasMaskHandlers();
 
-		// Set up group drag handler (Alt+drag leaves stranger nodes behind)
-		this.cleanupGroupDragHandler =
-			registerGroupDragHandler(canvas, this.canvasApi);
+		// Group/subtree drag conveniences add pointer handlers that interfere
+		// with native touch dragging, so they are skipped entirely on tablets.
+		if (!isTablet()) {
+			// Set up group drag handler (Alt+drag leaves stranger nodes behind)
+			this.cleanupGroupDragHandler =
+				registerGroupDragHandler(canvas, this.canvasApi);
 
-		// Update group bounds after a node drag (not viewport pan in read mode)
-		let groupDragPending = false;
-		let groupDragActive = false;
-		let groupDragStartX = 0;
-		let groupDragStartY = 0;
-		const dragOpts = { passive: true } as AddEventListenerOptions;
+			// Update group bounds after a node drag (not viewport pan in read mode)
+			let groupDragPending = false;
+			let groupDragActive = false;
+			let groupDragStartX = 0;
+			let groupDragStartY = 0;
+			const dragOpts = { passive: true } as AddEventListenerOptions;
 
-		const onGroupPointerDown = (e: PointerEvent) => {
-			if (isCanvasReadonly(canvas) || !this.isMindmapCanvas(canvas)) {
+			const onGroupPointerDown = (e: PointerEvent) => {
+				if (isCanvasReadonly(canvas) || !this.isMindmapCanvas(canvas)) {
+					groupDragPending = false;
+					return;
+				}
+				groupDragPending = findNodeFromEvent(canvas, e) !== null;
+				groupDragActive = false;
+				groupDragStartX = e.clientX;
+				groupDragStartY = e.clientY;
+			};
+			const onGroupPointerMove = (e: PointerEvent) => {
+				if (!groupDragPending || e.buttons === 0) return;
+				if (Math.hypot(e.clientX - groupDragStartX, e.clientY - groupDragStartY) >= NODE_DRAG_THRESHOLD_PX) {
+					groupDragActive = true;
+				}
+			};
+			const onDragEnd = () => {
+				if (!groupDragActive) {
+					groupDragPending = false;
+					return;
+				}
 				groupDragPending = false;
-				return;
-			}
-			groupDragPending = findNodeFromEvent(canvas, e) !== null;
-			groupDragActive = false;
-			groupDragStartX = e.clientX;
-			groupDragStartY = e.clientY;
-		};
-		const onGroupPointerMove = (e: PointerEvent) => {
-			if (!groupDragPending || e.buttons === 0) return;
-			if (Math.hypot(e.clientX - groupDragStartX, e.clientY - groupDragStartY) >= NODE_DRAG_THRESHOLD_PX) {
-				groupDragActive = true;
-			}
-		};
-		const onDragEnd = () => {
-			if (!groupDragActive) {
-				groupDragPending = false;
-				return;
-			}
-			groupDragPending = false;
-			groupDragActive = false;
-			this.trackedRaf(() => this.updateGroupBounds(canvas));
-		};
-		canvas.wrapperEl.addEventListener("pointerdown", onGroupPointerDown, dragOpts);
-		canvas.wrapperEl.addEventListener("pointermove", onGroupPointerMove, dragOpts);
-		canvas.wrapperEl.addEventListener("pointerup", onDragEnd, dragOpts);
-		canvas.wrapperEl.addEventListener("pointercancel", onDragEnd, dragOpts);
-		this.cleanupGroupBoundsHandler = () => {
-			canvas.wrapperEl.removeEventListener("pointerdown", onGroupPointerDown, dragOpts);
-			canvas.wrapperEl.removeEventListener("pointermove", onGroupPointerMove, dragOpts);
-			canvas.wrapperEl.removeEventListener("pointerup", onDragEnd, dragOpts);
-			canvas.wrapperEl.removeEventListener("pointercancel", onDragEnd, dragOpts);
-		};
+				groupDragActive = false;
+				this.trackedRaf(() => this.updateGroupBounds(canvas));
+			};
+			canvas.wrapperEl.addEventListener("pointerdown", onGroupPointerDown, dragOpts);
+			canvas.wrapperEl.addEventListener("pointermove", onGroupPointerMove, dragOpts);
+			canvas.wrapperEl.addEventListener("pointerup", onDragEnd, dragOpts);
+			canvas.wrapperEl.addEventListener("pointercancel", onDragEnd, dragOpts);
+			this.cleanupGroupBoundsHandler = () => {
+				canvas.wrapperEl.removeEventListener("pointerdown", onGroupPointerDown, dragOpts);
+				canvas.wrapperEl.removeEventListener("pointermove", onGroupPointerMove, dragOpts);
+				canvas.wrapperEl.removeEventListener("pointerup", onDragEnd, dragOpts);
+				canvas.wrapperEl.removeEventListener("pointercancel", onDragEnd, dragOpts);
+			};
+		}
 
 		// Sync outline highlight when canvas selection changes (click or Escape)
 		const syncOutlineSelection = () => {
