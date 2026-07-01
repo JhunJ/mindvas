@@ -23,6 +23,10 @@
 import { attachTapVsDrag } from "../../src/ui/gesture-tap";
 
 const GESTURE_IDLE = 260;
+// Safety window after which a pointer with no observed release is forgotten, so
+// suppression can never stick forever (production uses a longer value; the
+// harness shortens it so the self-heal is testable quickly).
+const POINTER_SAFETY = 400;
 
 interface CardState {
 	id: string;
@@ -53,8 +57,36 @@ const cards = new Map<string, { el: HTMLElement; state: CardState }>();
 
 let interacting = false;
 let pointerHeld = false;
+const activePointers = new Map<number, number>();
 let idleTimer: number | null = null;
 let activeDrag: DragCtx | null = null;
+
+function syncPointerHeld(): void {
+	pointerHeld = activePointers.size > 0;
+}
+function pointerDownTracked(id: number): void {
+	const stale = activePointers.get(id);
+	if (stale !== undefined) window.clearTimeout(stale);
+	activePointers.set(
+		id,
+		window.setTimeout(() => {
+			activePointers.delete(id);
+			syncPointerHeld();
+		}, POINTER_SAFETY)
+	);
+	syncPointerHeld();
+}
+function pointerReleaseTracked(id: number): void {
+	const t = activePointers.get(id);
+	if (t !== undefined) window.clearTimeout(t);
+	activePointers.delete(id);
+	syncPointerHeld();
+}
+function clearAllPointers(): void {
+	for (const t of activePointers.values()) window.clearTimeout(t);
+	activePointers.clear();
+	syncPointerHeld();
+}
 let boxSelecting = false;
 let boxStartX = 0;
 let boxStartY = 0;
@@ -218,9 +250,9 @@ function initBoxSelect(): void {
 	// bubble-phase tap handler on a card/inline mask, so pointerHeld is already
 	// cleared by the time an onTap fires — a tap-to-reveal never counts as a held
 	// drag, while a long-press (finger still down during a sweep) correctly does.
-	wrapper.addEventListener("pointerdown", () => { pointerHeld = true; markInteracting(); }, true);
-	wrapper.addEventListener("pointerup", () => { pointerHeld = false; markInteracting(); }, true);
-	wrapper.addEventListener("pointercancel", () => { pointerHeld = false; markInteracting(); }, true);
+	wrapper.addEventListener("pointerdown", (e) => { pointerDownTracked((e as PointerEvent).pointerId ?? 0); markInteracting(); }, true);
+	wrapper.addEventListener("pointerup", (e) => { pointerReleaseTracked((e as PointerEvent).pointerId ?? 0); markInteracting(); }, true);
+	wrapper.addEventListener("pointercancel", (e) => { pointerReleaseTracked((e as PointerEvent).pointerId ?? 0); markInteracting(); }, true);
 
 	wrapper.addEventListener("pointerdown", (e) => {
 		markInteracting();
@@ -272,7 +304,7 @@ function runMaintenanceSweep(): void {
 function reset(cfg: Partial<HarnessConfig>): void {
 	config = { suppressDuringTouch: true, ...cfg };
 	interacting = false;
-	pointerHeld = false;
+	clearAllPointers();
 	if (idleTimer !== null) {
 		window.clearTimeout(idleTimer);
 		idleTimer = null;

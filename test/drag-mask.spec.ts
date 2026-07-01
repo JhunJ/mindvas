@@ -251,6 +251,36 @@ test("control: with suppression OFF, a long-press hold lets the restore cancel t
 	expect(after.x).toBeLessThan(before.x + 150);
 });
 
+// --- a missed pointerup must not freeze suppression forever ---
+// A native canvas drag can capture the pointer and release it off-wrapper, so a
+// pointerup may never reach our listeners. Suppression must self-heal, otherwise
+// sync freezes and the plugin "works once, then goes dead".
+
+test("a missed pointerup self-heals: suppression releases so sync resumes", async ({ page }) => {
+	// Finger goes down and never comes back up (release is lost to a capture).
+	await page.evaluate((selector) => {
+		const el = document.querySelector(selector) as HTMLElement;
+		const r = el.getBoundingClientRect();
+		el.dispatchEvent(
+			new PointerEvent("pointerdown", { pointerId: 7, pointerType: "touch", clientX: r.left + 10, clientY: r.top + 10, bubbles: true, cancelable: true })
+		);
+	}, cardSel("A"));
+
+	// While still "held", a mask restore is suppressed.
+	await page.evaluate(() => {
+		(window as any).harness.externalReRender("A");
+		(window as any).harness.runMaintenanceSweep();
+	});
+	expect((await getState(page, "A")).maskVisible).toBe(false);
+	expect(await page.evaluate(() => (window as any).harness.isInteracting())).toBe(true);
+
+	// After the safety window the lost pointer is forgotten; sync resumes.
+	await page.waitForTimeout(750);
+	expect(await page.evaluate(() => (window as any).harness.isInteracting())).toBe(false);
+	await page.evaluate(() => (window as any).harness.runMaintenanceSweep());
+	expect((await getState(page, "A")).maskVisible).toBe(true);
+});
+
 // --- mask must not vanish after Obsidian re-renders a card (self-heal) ---
 
 test("whole-card mask restored after an external re-render", async ({ page }) => {

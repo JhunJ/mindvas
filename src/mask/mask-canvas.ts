@@ -586,6 +586,18 @@ export function registerCanvasMaskHandler(
 	let pointerHeld = false;
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	let gestureTimer: ReturnType<typeof setTimeout> | null = null;
+	// Active touch/pen pointers by id. A native canvas drag can capture the
+	// pointer and release it on an element that isn't under our wrapper, so a
+	// matching pointerup/cancel may never reach these listeners. Each pointer
+	// therefore carries a safety timeout: if no release arrives, we forget it so
+	// `pointerHeld` (and the sync suppression it drives) can NEVER stick forever.
+	// Without this, one missed release froze all sync — masks stopped healing and
+	// tap-to-reveal stopped updating: the "works once, then dead" bug.
+	const activePointers = new Map<number, ReturnType<typeof setTimeout>>();
+	const POINTER_SAFETY_MS = 6000;
+	const syncPointerHeld = () => {
+		pointerHeld = activePointers.size > 0;
+	};
 
 	const runSync = () => {
 		// Never scan/rewrite the DOM while the user is panning/zooming, or while
@@ -637,12 +649,31 @@ export function registerCanvasMaskHandler(
 	const wrapper = canvas.wrapperEl;
 	const gestureOpts = { passive: true, capture: true } as AddEventListenerOptions;
 	const onGesture = () => markInteracting();
-	const onPointerDown = () => {
-		pointerHeld = true;
+	const onPointerDown = (e: Event) => {
+		const id = (e as PointerEvent).pointerId ?? 0;
+		const stale = activePointers.get(id);
+		if (stale) clearTimeout(stale);
+		activePointers.set(
+			id,
+			setTimeout(() => {
+				activePointers.delete(id);
+				syncPointerHeld();
+			}, POINTER_SAFETY_MS)
+		);
+		syncPointerHeld();
 		markInteracting();
 	};
-	const onPointerRelease = () => {
-		pointerHeld = false;
+	const onPointerRelease = (e: Event) => {
+		const id = (e as PointerEvent).pointerId;
+		if (id == null) {
+			for (const t of activePointers.values()) clearTimeout(t);
+			activePointers.clear();
+		} else {
+			const t = activePointers.get(id);
+			if (t) clearTimeout(t);
+			activePointers.delete(id);
+		}
+		syncPointerHeld();
 		markInteracting();
 	};
 	// All mobile (phones + tablets): passive pointer tracking so any in-progress
@@ -772,6 +803,8 @@ export function registerCanvasMaskHandler(
 			wrapper?.removeEventListener("pointercancel", onPointerRelease, gestureOpts);
 			wrapper?.removeEventListener("wheel", onGesture, gestureOpts);
 		}
+		for (const t of activePointers.values()) clearTimeout(t);
+		activePointers.clear();
 		observer.disconnect();
 		app.vault.offref(onVaultChange);
 		cleanupSelection();
