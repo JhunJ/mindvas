@@ -44,6 +44,7 @@ import { isMobileApp, isPhone, isTablet, syncMobileBodyClass, safeRun, ensureOut
 import { registerMobileEditViewportLock } from "./ui/mobile-edit-viewport";
 import { insertImageToCanvas } from "./ui/image-insert";
 import { toggleHud } from "./ui/touch-hud";
+import { registerMobileCanvasImageDismiss } from "./ui/gesture-bypass";
 import { arrowShortcutExtension } from "./ui/arrow-shortcut";
 import { maskEditorExtension } from "./mask/mask-editor-extension";
 
@@ -106,6 +107,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 			registerCanvasMarkdownMaskProcessor(this);
 			registerAdvancedCanvasMaskHooks(this);
 			registerMaskClickDelegation(this);
+			registerMobileCanvasImageDismiss(this);
 			setMaskCanvasRefresh(() => refreshAllCanvasMasks(this.app));
 			this.app.workspace.onLayoutReady(() => {
 				this.ensureCanvasMaskHandlers();

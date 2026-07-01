@@ -32,6 +32,7 @@ import { scanCanvasEditingNodes } from "./mask-canvas-editor-inject";
 import { getCanvasNodeMaskSource } from "./mask-canvas-preview";
 import { attachTapVsDrag } from "../ui/gesture-tap";
 import { hudLine, hudEnabled } from "../ui/touch-hud";
+import { shouldBypassMindvasGesture } from "../ui/gesture-bypass";
 import {
 	isTextCardReadMode,
 	isTextCardEditing,
@@ -314,6 +315,13 @@ function isMarkdownPath(path: string): boolean {
 	return /\.(md|markdown)$/i.test(path);
 }
 
+/** Image/PDF/audio file cards — Obsidian owns tap-to-expand; never rewrite their DOM. */
+function isBinaryMediaFileNode(node: CanvasNode): boolean {
+	if (!isFileCanvasNode(node)) return false;
+	const path = resolveFilePath(node);
+	return !!path && !isMarkdownPath(path);
+}
+
 function invalidateFileContentCache(node: CanvasNode): void {
 	fileContentCache.delete(node);
 }
@@ -334,7 +342,8 @@ async function syncFileNodeFromVault(
 	// and must NOT be read as text — decoding a large binary as UTF-8 freezes
 	// the app and blocks subsequent touch input.
 	if (path && !isMarkdownPath(path)) {
-		removeInlinePreview(node);
+		// Never call removeInlinePreview on images — it breaks Obsidian's native
+		// tap-to-fullscreen / tap-to-dismiss cycle on mobile after the 2nd open.
 		setIframeVisible(node, true);
 		return;
 	}
@@ -392,6 +401,8 @@ function syncOneNode(
 		}
 		return;
 	}
+
+	if (isBinaryMediaFileNode(node)) return;
 
 	if (!isMaskableCanvasNode(node)) {
 		removeWholeNodeOverlay(node);
@@ -701,6 +712,7 @@ export function registerCanvasMaskHandler(
 			}
 			for (const node of canvas.nodes.values()) {
 				if (!isMaskableCanvasNode(node)) continue;
+				if (isBinaryMediaFileNode(node)) continue;
 				if (isTextCanvasNode(node) && (node.isEditing || isTextCardEditing(node))) continue;
 				if (!isTextCanvasNode(node) && node.isEditing) continue;
 				reconcileMobileNodeHitTarget(node);
@@ -745,6 +757,10 @@ export function registerCanvasMaskHandler(
 	const wrapper = canvas.wrapperEl;
 	const gestureOpts = { passive: true, capture: true } as AddEventListenerOptions;
 	const onGesture = () => markInteracting();
+	const onGestureUnlessMedia = (e: Event) => {
+		if (shouldBypassMindvasGesture(e.target)) return;
+		markInteracting();
+	};
 	const reportHud = (phase: string, e: Event, n: number) => {
 		if (!hudEnabled()) return;
 		const t = e.target as HTMLElement | null;
@@ -774,6 +790,7 @@ export function registerCanvasMaskHandler(
 		}
 	};
 	const onPointerDown = (e: Event) => {
+		if (shouldBypassMindvasGesture(e.target)) return;
 		const id = (e as PointerEvent).pointerId ?? 0;
 		const stale = activePointers.get(id);
 		if (stale) clearTimeout(stale);
@@ -789,6 +806,7 @@ export function registerCanvasMaskHandler(
 		reportHud("DOWN", e, ++downCount);
 	};
 	const onPointerRelease = (e: Event) => {
+		if (shouldBypassMindvasGesture(e.target)) return;
 		const id = (e as PointerEvent).pointerId;
 		const wasCardDrag = canvas.isDragging;
 		if (id == null) {
@@ -822,7 +840,7 @@ export function registerCanvasMaskHandler(
 	// mouse drags survive re-renders).
 	if (mobile) {
 		wrapper?.addEventListener("pointerdown", onPointerDown, gestureOpts);
-		wrapper?.addEventListener("pointermove", onGesture, gestureOpts);
+		wrapper?.addEventListener("pointermove", onGestureUnlessMedia, gestureOpts);
 		wrapper?.addEventListener("pointerup", onPointerRelease, gestureOpts);
 		wrapper?.addEventListener("pointercancel", onPointerRelease, gestureOpts);
 		wrapper?.addEventListener("wheel", onGesture, gestureOpts);
@@ -919,6 +937,7 @@ export function registerCanvasMaskHandler(
 		if (interacting || pointerHeld || canvas.isDragging || mobileMaskApplyPaused()) return;
 		for (const node of canvas.nodes.values()) {
 			if (!isMaskableCanvasNode(node)) continue;
+			if (isBinaryMediaFileNode(node)) continue;
 			if (isTextCanvasNode(node) && (node.isEditing || isTextCardEditing(node))) continue;
 			if (!isTextCanvasNode(node) && node.isEditing) continue;
 			if (!resolveLiveNodeEl(node)) continue;

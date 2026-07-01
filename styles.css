@@ -714,6 +714,19 @@ body.mindvas-mobile .mindvas-inline-mask-wrap {
 	z-index: 2147483646;
 }
 
+/* Mobile: expanded canvas images must sit above mask overlays and stay tappable. */
+body.mindvas-mobile .canvas-wrapper .image-embed:active,
+body.mindvas-mobile .canvas-wrapper .image-embed[style*="position: fixed"],
+body.mindvas-mobile .canvas-wrapper img:active {
+	z-index: 2147483645 !important;
+	pointer-events: auto !important;
+}
+
+body.mindvas-mobile .canvas-node.mindvas-has-inline-mask > .mindvas-mask-preview,
+body.mindvas-mobile .canvas-node[data-mindvas-inline-mask] > .mindvas-mask-preview {
+	z-index: 10 !important;
+}
+
 .canvas-node .mindvas-mask-tape {
 	z-index: 10000;
 }
