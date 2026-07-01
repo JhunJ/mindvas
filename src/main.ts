@@ -38,6 +38,7 @@ import { registerMaskClickDelegation, setMaskCanvasRefresh } from "./mask/mask-c
 import { registerMaskContextMenu } from "./mask/mask-context";
 import { rememberMaskSelection, resolveMaskTargetNode, registerGlobalCanvasSelectionTracking } from "./mask/mask-selection";
 import { applyMaskToNode } from "./mask/mask-action";
+import { MASK_COLORS, type MaskColor } from "./mask/mask-core";
 import { MobileToolbar } from "./ui/mobile-toolbar";
 import { isMobileApp, isPhone, isTablet, syncMobileBodyClass, safeRun, ensureOutlineLeaf, expandRightSidebar } from "./ui/mobile-utils";
 import { registerMobileEditViewportLock } from "./ui/mobile-edit-viewport";
@@ -367,7 +368,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 		// ── 마스킹 ──
 		this.addCommand({
 			id: "mindmap-toggle-node-mask",
-			name: "가리기",
+			name: "마스킹: 선택 가리기/보이기",
 			checkCallback: (checking: boolean) => {
 				const canvas = this.canvasApi.getActiveCanvas();
 				if (!canvas) return false;
@@ -380,7 +381,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 
 		this.addCommand({
 			id: "mindmap-cover-all-masks",
-			name: "전부 다시 가리기",
+			name: "마스킹: 전부 다시 가리기",
 			checkCallback: (checking: boolean) => {
 				const canvas = this.canvasApi.getActiveCanvas();
 				if (!canvas) return false;
@@ -392,7 +393,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 
 		this.addCommand({
 			id: "mindmap-reveal-all-masks",
-			name: "전부 보이기",
+			name: "마스킹: 전부 보이기",
 			checkCallback: (checking: boolean) => {
 				const canvas = this.canvasApi.getActiveCanvas();
 				if (!canvas) return false;
@@ -402,9 +403,26 @@ export default class CanvasMindMapPlugin extends Plugin {
 			},
 		});
 
+		// 색상별 가리기: 편집 중 텍스트를 선택하면 그 부분만, 아니면 카드 전체를 가림.
+		for (const color of Object.keys(MASK_COLORS) as MaskColor[]) {
+			this.addCommand({
+				id: `mask-color-${color}`,
+				name: `마스킹: ${MASK_COLORS[color].label}(${color})로 가리기`,
+				checkCallback: (checking: boolean) => {
+					const canvas = this.canvasApi.getActiveCanvas();
+					if (!canvas) return false;
+					const node = resolveMaskTargetNode(canvas, this.canvasApi);
+					if (!node) return false;
+					if (checking) return true;
+					applyMaskToNode(canvas, node, this.getCanvasPath(canvas), this.app, color);
+					this.refreshMaskPanel();
+				},
+			});
+		}
+
 		this.addCommand({
 			id: "open-mask-panel",
-			name: "마스킹 목록 열기",
+			name: "마스킹: 목록 열기",
 			callback: () => void this.openMaskPanel(),
 		});
 

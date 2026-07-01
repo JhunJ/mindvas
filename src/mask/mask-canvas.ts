@@ -562,11 +562,32 @@ export function registerCanvasMaskHandler(
 	const wrapper = canvas.wrapperEl;
 	const gestureOpts = { passive: true, capture: true } as AddEventListenerOptions;
 	const onGesture = () => markInteracting();
-	wrapper?.addEventListener("pointerdown", onGesture, gestureOpts);
-	wrapper?.addEventListener("pointermove", onGesture, gestureOpts);
-	wrapper?.addEventListener("pointerup", onGesture, gestureOpts);
-	wrapper?.addEventListener("wheel", onGesture, gestureOpts);
-	wrapper?.addEventListener("touchmove", onGesture, gestureOpts);
+	// Gesture suppression is a mobile performance measure only. On desktop it is
+	// unnecessary and we keep zero extra pointer listeners to avoid any drag regressions.
+	if (mobile) {
+		wrapper?.addEventListener("pointerdown", onGesture, gestureOpts);
+		wrapper?.addEventListener("pointermove", onGesture, gestureOpts);
+		wrapper?.addEventListener("pointerup", onGesture, gestureOpts);
+		wrapper?.addEventListener("wheel", onGesture, gestureOpts);
+		wrapper?.addEventListener("touchmove", onGesture, gestureOpts);
+	}
+
+	// Desktop keeps the proven per-frame mask reapply (rAF-debounced) that worked
+	// before the mobile rework — avoids any interaction regressions on desktop.
+	let origRequestFrame: (() => void) | null = null;
+	if (!mobile) {
+		origRequestFrame = canvas.requestFrame.bind(canvas);
+		let frameSyncPending = false;
+		canvas.requestFrame = () => {
+			origRequestFrame!();
+			if (frameSyncPending) return;
+			frameSyncPending = true;
+			requestAnimationFrame(() => {
+				frameSyncPending = false;
+				runSync();
+			});
+		};
+	}
 
 	// Initial application (deferred so it doesn't block the first paint).
 	setTimeout(runSync, 0);
@@ -634,16 +655,19 @@ export function registerCanvasMaskHandler(
 	const cleanupSelection = trackCanvasSelection(canvas);
 
 	return () => {
+		if (origRequestFrame) canvas.requestFrame = origRequestFrame;
 		window.clearInterval(bootInterval);
 		window.clearInterval(editScanInterval);
 		window.clearInterval(maintainInterval);
 		if (debounceTimer) clearTimeout(debounceTimer);
 		if (gestureTimer) clearTimeout(gestureTimer);
-		wrapper?.removeEventListener("pointerdown", onGesture, gestureOpts);
-		wrapper?.removeEventListener("pointermove", onGesture, gestureOpts);
-		wrapper?.removeEventListener("pointerup", onGesture, gestureOpts);
-		wrapper?.removeEventListener("wheel", onGesture, gestureOpts);
-		wrapper?.removeEventListener("touchmove", onGesture, gestureOpts);
+		if (mobile) {
+			wrapper?.removeEventListener("pointerdown", onGesture, gestureOpts);
+			wrapper?.removeEventListener("pointermove", onGesture, gestureOpts);
+			wrapper?.removeEventListener("pointerup", onGesture, gestureOpts);
+			wrapper?.removeEventListener("wheel", onGesture, gestureOpts);
+			wrapper?.removeEventListener("touchmove", onGesture, gestureOpts);
+		}
 		observer.disconnect();
 		app.vault.offref(onVaultChange);
 		cleanupSelection();

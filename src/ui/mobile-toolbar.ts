@@ -80,10 +80,24 @@ export class MobileToolbar {
 				.onClick(() => commands?.executeCommandById?.("mindvas:insert-image"));
 		});
 		menu.addItem((item) => {
-			item.setTitle("가리기")
+			item.setTitle("가리기 (기본색)")
 				.setIcon("bandage")
 				.onClick(() => commands?.executeCommandById?.("mindvas:mindmap-toggle-node-mask"));
 		});
+		// Color choices — works on the current text selection (edit mode) or whole card.
+		const colors: Array<{ id: string; label: string }> = [
+			{ id: "yellow", label: "복습(노랑)" },
+			{ id: "red", label: "어려움(빨강)" },
+			{ id: "blue", label: "용어(파랑)" },
+			{ id: "green", label: "숙지(초록)" },
+		];
+		for (const c of colors) {
+			menu.addItem((item) => {
+				item.setTitle(`가리기 · ${c.label}`)
+					.setIcon("highlighter")
+					.onClick(() => commands?.executeCommandById?.(`mindvas:mask-color-${c.id}`));
+			});
+		}
 		menu.addItem((item) => {
 			item.setTitle("마스킹 목록")
 				.setIcon("list")
