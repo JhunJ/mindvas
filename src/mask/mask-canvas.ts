@@ -609,10 +609,16 @@ export function registerCanvasMaskHandler(
 		wrapper?.addEventListener("touchmove", onGesture, gestureOpts);
 	}
 
-	// Desktop + tablets keep the proven per-frame mask reapply (rAF-debounced)
-	// that worked before the mobile rework — avoids interaction regressions.
+	// DESKTOP ONLY: hook requestFrame to reapply masks per frame (rAF-debounced).
+	// This is safe with a mouse (pointer capture keeps drags alive through DOM
+	// re-renders). On tablets it broke card dragging: a mid-drag requestFrame
+	// (from the edge updater) triggered runSync which re-rendered the card DOM
+	// and cancelled the touch drag — and canvas.isDragging isn't reliably set on
+	// mobile, so it couldn't guard against it. Tablets instead rely on the
+	// MutationObserver + maintenance intervals to keep masks in sync, leaving
+	// Obsidian's native canvas methods completely untouched during drags.
 	let origRequestFrame: (() => void) | null = null;
-	if (!useEventSync) {
+	if (!mobile) {
 		origRequestFrame = canvas.requestFrame.bind(canvas);
 		let frameSyncPending = false;
 		canvas.requestFrame = () => {
