@@ -1,5 +1,5 @@
 import type { Canvas } from "../types/canvas-internal";
-import { isMobileApp } from "./mobile-utils";
+import { isPhone } from "./mobile-utils";
 
 interface ViewportSnapshot {
 	tx: number;
@@ -22,7 +22,8 @@ type CanvasWithViewport = Canvas & {
  * until edit mode actually starts.
  */
 export function registerMobileEditViewportLock(canvas: Canvas): () => void {
-	if (!isMobileApp()) return () => {};
+	// Phones only — on tablets this lock's zoom/pan overrides broke card drag.
+	if (!isPhone()) return () => {};
 
 	const c = canvas as CanvasWithViewport;
 	const wrapper = canvas.wrapperEl;

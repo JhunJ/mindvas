@@ -801,8 +801,10 @@ export default class CanvasMindMapPlugin extends Plugin {
 		// Inject mindmap toggle button into canvas toolbar
 		this.injectToggleButton(canvas);
 
-		// Mobile/tablet: keep zoom/pan when keyboard opens for card editing
-		if (isMobileApp()) {
+		// Phones only: keep zoom/pan when the on-screen keyboard opens for card
+		// editing. Tablets (Galaxy Tab) behave like desktop — this lock overrides
+		// canvas zoom/pan methods and interfered with press-and-drag to move cards.
+		if (isPhone()) {
 			this.cleanupMobileEditViewportHandler =
 				registerMobileEditViewportLock(canvas);
 		}
