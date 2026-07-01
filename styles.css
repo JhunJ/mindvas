@@ -598,6 +598,13 @@ body.mindvas-mobile .mindvas-mask-preview {
 	pointer-events: none !important;
 }
 
+/* Ensure the card itself always receives touches on mobile — after a move
+   Obsidian may re-render embeds; mask DOM edits must not leave the node
+   un-hittable (HUD: nodeAtPt=N, touch falls through to canvas-wrapper). */
+body.mindvas-mobile .canvas-wrapper .canvas-node {
+	pointer-events: auto !important;
+}
+
 /* Inline masks are small text spans (rarely a drag start point) and stay
    tappable via the JS tap-vs-drag handlers; touch-action:none stops the browser
    from hijacking the gesture before the canvas can drag/box-select. */

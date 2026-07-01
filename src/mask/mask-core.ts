@@ -178,12 +178,25 @@ export function setNodeMaskColor(
 	canvas.setData(data);
 }
 
+/** Obsidian may replace node.nodeEl after a drag/rerender — always query the live
+ * connected element so mask DOM edits land on the card the user actually sees. */
+export function resolveLiveNodeEl(node: CanvasNode): HTMLElement | null {
+	if (node.nodeEl?.isConnected) return node.nodeEl;
+	const wrapper = node.canvas?.wrapperEl;
+	if (!wrapper) return null;
+	for (const el of Array.from(wrapper.querySelectorAll<HTMLElement>(".canvas-node"))) {
+		if (el.dataset.id === node.id || el.dataset.nodeId === node.id) return el;
+	}
+	return null;
+}
+
 export function getMaskOverlayHost(node: CanvasNode): HTMLElement | null {
-	if (!node.nodeEl) return null;
+	const root = resolveLiveNodeEl(node);
+	if (!root) return null;
 	return (
-		node.nodeEl.querySelector<HTMLElement>(".canvas-node-container") ??
-		node.nodeEl.querySelector<HTMLElement>(".canvas-node-content") ??
-		node.contentEl ??
-		node.nodeEl
+		root.querySelector<HTMLElement>(".canvas-node-container") ??
+		root.querySelector<HTMLElement>(".canvas-node-content") ??
+		(node.contentEl?.isConnected ? node.contentEl : null) ??
+		root
 	);
 }

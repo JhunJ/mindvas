@@ -8,6 +8,7 @@ import {
 	parseInlineMasks,
 	normalizeMaskSyntax,
 	noteMaskItemKey,
+	resolveLiveNodeEl,
 } from "./mask-core";
 import { trackCanvasSelection } from "./mask-selection";
 import { isRevealed, toggleRevealed } from "./mask-reveal";
@@ -175,8 +176,9 @@ function applyFileNodeInlineMasks(node: CanvasNode, content: string, canvasPath:
 const iframeWatchGeneration = new WeakMap<HTMLIFrameElement, number>();
 
 function watchFileNodeIframe(node: CanvasNode, onLoad: () => void): void {
-	if (!node.nodeEl) return;
-	const iframe = node.nodeEl.querySelector<HTMLIFrameElement>("iframe");
+	const root = resolveLiveNodeEl(node);
+	if (!root) return;
+	const iframe = root.querySelector<HTMLIFrameElement>("iframe");
 	if (!iframe) return;
 
 	const gen = (iframeWatchGeneration.get(iframe) ?? 0) + 1;
@@ -184,10 +186,12 @@ function watchFileNodeIframe(node: CanvasNode, onLoad: () => void): void {
 
 	const schedule = () => {
 		if (iframeWatchGeneration.get(iframe) !== gen) return;
+		if (isMobileApp() && mobileMaskApplyPaused()) return;
 		onLoad();
 	};
 
 	iframe.addEventListener("load", schedule, { passive: true });
+	if (isMobileApp()) return;
 	window.setTimeout(schedule, 0);
 	window.setTimeout(schedule, 350);
 	window.setTimeout(schedule, 900);
@@ -205,7 +209,7 @@ function setIframeVisible(node: CanvasNode, visible: boolean): void {
  * (>8px) never toggles, so moving the card still works. Passive listeners only.
  */
 function attachCardTapReveal(node: CanvasNode, key: string, onRefresh: () => void): void {
-	const el = node.nodeEl;
+	const el = resolveLiveNodeEl(node);
 	if (!el || el.dataset.mindvasTapReveal === "1") return;
 	el.dataset.mindvasTapReveal = "1";
 
@@ -375,6 +379,18 @@ function syncOneNode(
 	onRefresh: () => void,
 	app: App
 ): void {
+	// Mobile: after a touch ends, Obsidian re-renders moved cards for several
+	// seconds. Heavy mask re-application during that window leaves the card
+	// un-hittable (HUD: nodeAtPt=N, touch falls through to canvas-wrapper).
+	// Only refresh whole-card tape (class/text) during cooldown; skip inline/file
+	// DOM rewrites until the card has settled.
+	if (mobileMaskApplyPaused()) {
+		if (isNodeMasked(node.canvas, node.id)) {
+			ensureWholeNodeOverlay(node, canvasPath, onRefresh);
+		}
+		return;
+	}
+
 	if (!isMaskableCanvasNode(node)) {
 		removeWholeNodeOverlay(node);
 		removeInlinePreview(node);
@@ -456,6 +472,16 @@ function syncOneNode(
 // respects suppression; this shares that state with the per-node paths
 // (MutationObserver, retry timers) that previously ran unguarded.
 let anyGestureActive = false;
+// After any touch ends, Obsidian keeps re-rendering the moved card for a few
+// seconds. Re-applying masks during that window leaves the card un-hittable
+// (nodeAtPt=N — touch falls through to canvas-wrapper → pan only). Cooldown
+// blocks heavy mask DOM writes until the card has settled.
+let maskApplyCooldownUntil = 0;
+const MOBILE_MASK_COOLDOWN_MS = 4000;
+
+function mobileMaskApplyPaused(): boolean {
+	return isMobileApp() && (anyGestureActive || Date.now() < maskApplyCooldownUntil);
+}
 
 const textSyncGeneration = new WeakMap<CanvasNode, number>();
 
@@ -465,12 +491,13 @@ function scheduleTextNodeMaskRetries(
 	onRefresh: () => void,
 	app: App
 ): void {
+	if (isMobileApp()) return;
 	if (!isTextCanvasNode(node)) return;
 	const gen = (textSyncGeneration.get(node) ?? 0) + 1;
 	textSyncGeneration.set(node, gen);
 
 	const retry = () => {
-		if (anyGestureActive) return;
+		if (anyGestureActive || mobileMaskApplyPaused()) return;
 		if (textSyncGeneration.get(node) !== gen || !isTextCardReadMode(node)) return;
 		const content = resolveInlineMaskContent(node);
 		if (!content) return;
@@ -539,7 +566,9 @@ function schedulePostEditBlurSync(refresh: () => void): void {
 
 export function syncCanvasMaskUI(canvas: Canvas, canvasPath: string, app: App): void {
 	const onRefresh = () => syncCanvasMaskUI(canvas, canvasPath, app);
-	syncAllTextCardMasksOnCanvas(canvasPath, canvas.nodes.values());
+	if (!isMobileApp()) {
+		syncAllTextCardMasksOnCanvas(canvasPath, canvas.nodes.values());
+	}
 	let anyBlur = false;
 	for (const node of canvas.nodes.values()) {
 		const wasEditing = nodeWasEditing.get(node) ?? false;
@@ -735,6 +764,7 @@ export function registerCanvasMaskHandler(
 		}
 		syncPointerHeld();
 		markInteracting();
+		if (mobile) maskApplyCooldownUntil = Date.now() + MOBILE_MASK_COOLDOWN_MS;
 		reportHud("UP", e, ++upCount);
 	};
 	// All mobile (phones + tablets): passive pointer tracking so any in-progress
@@ -838,7 +868,7 @@ export function registerCanvasMaskHandler(
 
 	// Idle self-heal: only re-apply masks that went missing (e.g. after rerender).
 	const maintainInterval = window.setInterval(() => {
-		if (interacting || pointerHeld || canvas.isDragging) return;
+		if (interacting || pointerHeld || canvas.isDragging || mobileMaskApplyPaused()) return;
 		for (const node of canvas.nodes.values()) {
 			if (!isMaskableCanvasNode(node)) continue;
 			if (isTextCanvasNode(node) && (node.isEditing || isTextCardEditing(node))) continue;
@@ -855,7 +885,7 @@ export function registerCanvasMaskHandler(
 				ensureNodeMaskWatch(node, canvasPath, app, refresh);
 			}
 		}
-	}, mobile ? 1600 : 900);
+	}, mobile ? 5000 : 900);
 
 	const cleanupSelection = trackCanvasSelection(canvas);
 
@@ -877,6 +907,7 @@ export function registerCanvasMaskHandler(
 		for (const t of activePointers.values()) clearTimeout(t);
 		activePointers.clear();
 		anyGestureActive = false;
+		maskApplyCooldownUntil = 0;
 		observer.disconnect();
 		app.vault.offref(onVaultChange);
 		cleanupSelection();

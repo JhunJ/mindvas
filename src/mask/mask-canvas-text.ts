@@ -5,12 +5,14 @@ import {
 	countInlineMasks,
 	maskItemKey,
 	noteMaskItemKey,
+	resolveLiveNodeEl,
 } from "./mask-core";
 import { refreshExistingMaskWraps, processMaskTagsInContainer } from "./mask-dom";
 import { applyMasksFromSource, cleanupMaskTagRemnants } from "./mask-source";
 import { getCanvasNodeMaskSource } from "./mask-canvas-preview";
 import { isTextCanvasNode } from "./mask-canvas-node";
 import { ensureCanvasMaskStylesForNode, restyleAllTapesUnder } from "./mask-canvas-styles";
+import { isMobileApp } from "../ui/mobile-utils";
 
 function resolveCanvasFilePath(node: CanvasNode): string | null {
 	const runtimeFile = node.file;
@@ -114,20 +116,7 @@ export function isTextCardReadMode(node: CanvasNode): boolean {
 
 /** Resolve stable host element for overlay (node.nodeEl or live .canvas-node in wrapper). */
 export function resolveTextCardHost(node: CanvasNode): HTMLElement | null {
-	if (node.nodeEl?.isConnected) return node.nodeEl;
-
-	const canvas = node.canvas;
-	if (node.nodeEl) {
-		for (const el of Array.from(canvas.wrapperEl.querySelectorAll<HTMLElement>(".canvas-node"))) {
-			if (el === node.nodeEl) return el;
-		}
-	}
-
-	for (const el of Array.from(canvas.wrapperEl.querySelectorAll<HTMLElement>(".canvas-node"))) {
-		if (el.dataset.id === node.id || el.dataset.nodeId === node.id) return el;
-	}
-
-	return node.nodeEl ?? null;
+	return resolveLiveNodeEl(node);
 }
 
 function maskKeyFor(node: CanvasNode, canvasPath: string): (index: number) => string {
@@ -304,6 +293,7 @@ export function textCardOverlayApplied(node: CanvasNode, content?: string): bool
 }
 
 function ensurePreviewMaskWatcher(node: CanvasNode, content: string, canvasPath: string): void {
+	if (isMobileApp()) return;
 	const host = resolveTextCardHost(node);
 	if (!host || overlayWatchers.has(node)) return;
 
