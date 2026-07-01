@@ -566,18 +566,35 @@ export function registerCanvasMaskHandler(
 
 	const wrapper = canvas.wrapperEl;
 	const gestureOpts = { passive: true, capture: true } as AddEventListenerOptions;
-	const onGesture = () => markInteracting();
-	// Suppress sync while a touch gesture is in progress on ALL touch devices
-	// (phones AND tablets). This is critical for tablet card dragging: without
-	// it, a mid-drag requestFrame (e.g. from the edge updater) re-renders the
-	// card DOM and the touch drag is cancelled. Desktop uses a mouse with
-	// pointer capture, so it needs no such listeners (and they regressed drag).
+
+	// Only suppress sync for gestures that START on a card. A mid-drag
+	// requestFrame (e.g. from the edge updater) would otherwise re-render the
+	// card DOM and cancel the touch drag. Gestures that start on empty canvas
+	// (box selection, pan) must NOT be suppressed — doing so broke Obsidian's
+	// drag-to-select on tablets. Desktop uses a mouse with pointer capture and
+	// needs no listeners at all (they previously regressed desktop drag).
+	let gestureOnNode = false;
+	const startsOnNode = (e: Event): boolean => {
+		const t = e.target as HTMLElement | null;
+		return !!t?.closest?.(".canvas-node");
+	};
+	const onGestureDown = (e: Event) => {
+		gestureOnNode = startsOnNode(e);
+		if (gestureOnNode) markInteracting();
+	};
+	const onGestureMove = () => {
+		if (gestureOnNode) markInteracting();
+	};
+	const onGestureEnd = () => {
+		if (gestureOnNode) markInteracting();
+		gestureOnNode = false;
+	};
 	if (mobile) {
-		wrapper?.addEventListener("pointerdown", onGesture, gestureOpts);
-		wrapper?.addEventListener("pointermove", onGesture, gestureOpts);
-		wrapper?.addEventListener("pointerup", onGesture, gestureOpts);
-		wrapper?.addEventListener("wheel", onGesture, gestureOpts);
-		wrapper?.addEventListener("touchmove", onGesture, gestureOpts);
+		wrapper?.addEventListener("pointerdown", onGestureDown, gestureOpts);
+		wrapper?.addEventListener("pointermove", onGestureMove, gestureOpts);
+		wrapper?.addEventListener("touchmove", onGestureMove, gestureOpts);
+		wrapper?.addEventListener("pointerup", onGestureEnd, gestureOpts);
+		wrapper?.addEventListener("pointercancel", onGestureEnd, gestureOpts);
 	}
 
 	// Desktop + tablets keep the proven per-frame mask reapply (rAF-debounced)
@@ -670,11 +687,11 @@ export function registerCanvasMaskHandler(
 		if (debounceTimer) clearTimeout(debounceTimer);
 		if (gestureTimer) clearTimeout(gestureTimer);
 		if (mobile) {
-			wrapper?.removeEventListener("pointerdown", onGesture, gestureOpts);
-			wrapper?.removeEventListener("pointermove", onGesture, gestureOpts);
-			wrapper?.removeEventListener("pointerup", onGesture, gestureOpts);
-			wrapper?.removeEventListener("wheel", onGesture, gestureOpts);
-			wrapper?.removeEventListener("touchmove", onGesture, gestureOpts);
+			wrapper?.removeEventListener("pointerdown", onGestureDown, gestureOpts);
+			wrapper?.removeEventListener("pointermove", onGestureMove, gestureOpts);
+			wrapper?.removeEventListener("touchmove", onGestureMove, gestureOpts);
+			wrapper?.removeEventListener("pointerup", onGestureEnd, gestureOpts);
+			wrapper?.removeEventListener("pointercancel", onGestureEnd, gestureOpts);
 		}
 		observer.disconnect();
 		app.vault.offref(onVaultChange);
