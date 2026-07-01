@@ -803,10 +803,11 @@ export default class CanvasMindMapPlugin extends Plugin {
 		// Inject mindmap toggle button into canvas toolbar
 		this.injectToggleButton(canvas);
 
-		// Phones only: keep zoom/pan when the on-screen keyboard opens for card
-		// editing. Tablets (Galaxy Tab) behave like desktop — this lock overrides
-		// canvas zoom/pan methods and interfered with press-and-drag to move cards.
-		if (isPhone()) {
+		// Mobile (phones + tablets): keep the current viewport when the on-screen
+		// keyboard opens for card editing instead of letting Obsidian auto-zoom-to
+		// -fit. The lock only overrides zoom methods while a node is being edited,
+		// so it no longer interferes with press-and-drag or box-select.
+		if (isMobileApp()) {
 			this.cleanupMobileEditViewportHandler =
 				registerMobileEditViewportLock(canvas);
 		}

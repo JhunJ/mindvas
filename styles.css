@@ -573,22 +573,23 @@ body.mindvas-mobile .mindvas-mask-tape {
 
 /* Mobile/Tablet: never let Mindvas mask layers intercept canvas touch gestures.
    Dragging cards and box-select must behave exactly as when the plugin is
-   disabled. Masking actions remain available through commands / quick actions. */
-body.mindvas-mobile .mindvas-mask-tape,
-body.mindvas-mobile .mindvas-mask-preview,
-body.mindvas-mobile .mindvas-inline-tape,
-body.mindvas-mobile .mindvas-inline-revealed,
-body.mindvas-mobile .mindvas-inline-mask-wrap {
+   disabled. Scoped to .canvas-node so document (reading/edit) views keep their
+   tap-to-reveal masks. Masking actions also remain in commands / quick actions. */
+body.mindvas-mobile .canvas-node .mindvas-mask-tape,
+body.mindvas-mobile .canvas-node .mindvas-mask-preview,
+body.mindvas-mobile .canvas-node .mindvas-inline-tape,
+body.mindvas-mobile .canvas-node .mindvas-inline-revealed,
+body.mindvas-mobile .canvas-node .mindvas-inline-mask-wrap {
 	pointer-events: none !important;
 	touch-action: auto !important;
 }
 
 @media (pointer: coarse) {
-	.mindvas-mask-tape,
-	.mindvas-mask-preview,
-	.mindvas-inline-tape,
-	.mindvas-inline-revealed,
-	.mindvas-inline-mask-wrap {
+	.canvas-node .mindvas-mask-tape,
+	.canvas-node .mindvas-mask-preview,
+	.canvas-node .mindvas-inline-tape,
+	.canvas-node .mindvas-inline-revealed,
+	.canvas-node .mindvas-inline-mask-wrap {
 		pointer-events: none !important;
 		touch-action: auto !important;
 	}

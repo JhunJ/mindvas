@@ -540,11 +540,16 @@ export function registerCanvasMaskHandler(
 	app: App
 ): () => void {
 	const mobile = isMobileApp();
+	const tablet = mobile && !isPhone();
 
 	// Phones: event-based gesture-suppression sync. Desktop: requestFrame-override
-	// sync. Tablets: neither pointer listeners nor a requestFrame hook (so native
-	// touch drag/box-select stay intact), but they DO keep the MutationObserver +
-	// maintenance intervals below so masks reapply after Obsidian re-renders.
+	// sync. Tablets: neither pointer listeners, a requestFrame hook, NOR a
+	// MutationObserver — those all re-rendered cards mid-gesture and cancelled
+	// native touch drag / box-select (canvas.isDragging isn't reliably set on
+	// mobile, so it can't guard the observer). Tablets rely solely on the
+	// idempotent self-heal interval below, which only touches cards whose mask
+	// went missing and never rewrites a card that's already correct — so an
+	// in-progress drag is never disturbed.
 	const useEventSync = mobile && isPhone();
 	// Debounce sync so pan/zoom (which fire requestFrame dozens of times/sec on
 	// mobile) never trigger a full node scan mid-gesture.
@@ -647,10 +652,17 @@ export function registerCanvasMaskHandler(
 		if (fromMask) return;
 		scheduleSync();
 	});
-	observer.observe(canvas.wrapperEl, {
-		subtree: true,
-		childList: true,
-	});
+	// Tablets skip the observer: childList mutations fire while selecting/dragging
+	// cards (and while box-selecting empty space), and since canvas.isDragging is
+	// unreliable on mobile it can't guard runSync — the resulting mid-gesture
+	// re-render cancels the native touch drag. The self-heal interval below keeps
+	// masks applied without ever rewriting a card that's already correct.
+	if (!tablet) {
+		observer.observe(canvas.wrapperEl, {
+			subtree: true,
+			childList: true,
+		});
+	}
 
 	const onVaultChange = app.vault.on("modify", (file) => {
 		if (!(file instanceof TFile)) return;

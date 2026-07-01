@@ -45,9 +45,10 @@ function bindWrapToggle(wrap: HTMLElement, content: string, key: string): void {
 	if (wrap.dataset.mindvasBound === key) return;
 	wrap.dataset.mindvasBound = key;
 
-	if (isMobileApp()) return;
-
 	const onToggle = (e: Event) => {
+		// On mobile canvas, let the touch fall through to the card so it can be
+		// dragged/selected. Document (reading/edit) views still tap-to-reveal.
+		if (isMobileApp() && wrap.closest(".canvas-node")) return;
 		e.preventDefault();
 		e.stopPropagation();
 		toggleRevealed(key);
