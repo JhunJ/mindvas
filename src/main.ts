@@ -43,6 +43,7 @@ import { MobileToolbar } from "./ui/mobile-toolbar";
 import { isMobileApp, isPhone, isTablet, syncMobileBodyClass, safeRun, ensureOutlineLeaf, expandRightSidebar } from "./ui/mobile-utils";
 import { registerMobileEditViewportLock } from "./ui/mobile-edit-viewport";
 import { insertImageToCanvas } from "./ui/image-insert";
+import { toggleHud } from "./ui/touch-hud";
 import { arrowShortcutExtension } from "./ui/arrow-shortcut";
 import { maskEditorExtension } from "./mask/mask-editor-extension";
 
@@ -431,6 +432,16 @@ export default class CanvasMindMapPlugin extends Plugin {
 			name: "마스킹: 목록 열기",
 			icon: "list",
 			callback: () => void this.openMaskPanel(),
+		});
+
+		this.addCommand({
+			id: "toggle-touch-hud",
+			name: "진단: 터치 HUD 켜기/끄기 (임시)",
+			icon: "bug",
+			callback: () => {
+				const on = toggleHud();
+				new Notice(on ? "터치 진단 HUD 켜짐" : "터치 진단 HUD 꺼짐");
+			},
 		});
 
 		// ── 이미지 삽입 (모바일 + 데스크탑) ──
