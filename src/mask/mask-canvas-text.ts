@@ -244,6 +244,17 @@ export function hideNativeTextCardContent(nodeEl: HTMLElement): void {
 	}
 }
 
+/** Mobile: clear stuck hide styles on the live card so it stays hittable after a
+ * drag. Does not re-apply masks — only undoes accidental DOM hides. */
+export function reconcileMobileNodeHitTarget(node: CanvasNode): void {
+	const host = resolveLiveNodeEl(node);
+	if (!host) return;
+	host.classList.remove(NODE_MASK_CLASS);
+	delete host.dataset.mindvasInlineMask;
+	host.querySelector(`:scope > .${OVERLAY_CLASS}`)?.remove();
+	showNativeTextCardContent(host);
+}
+
 export function showNativeTextCardContent(nodeEl: HTMLElement): void {
 	for (const el of Array.from(nodeEl.querySelectorAll(`[${HIDDEN_ATTR}]`))) {
 		if (!(el instanceof HTMLElement)) continue;

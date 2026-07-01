@@ -42,6 +42,7 @@ import {
 	textCardOverlayApplied,
 	resolveTextCardHost,
 	applyCanvasNodeInPreviewMasks,
+	reconcileMobileNodeHitTarget,
 } from "./mask-canvas-text";
 import {
 	isTextCanvasNode,
@@ -236,6 +237,7 @@ function ensureWholeNodeOverlay(node: CanvasNode, canvasPath: string, onRefresh:
 	if (!overlay) {
 		overlay = document.createElement("button");
 		overlay.type = "button";
+		overlay.tabIndex = -1;
 		overlay.className = "mindvas-mask-tape mindvas-mask-ui";
 		overlay.dataset.mindvasKey = key;
 		overlay.setAttribute("aria-label", "탭하여 보기");
@@ -428,16 +430,17 @@ function syncOneNode(
 	if (isFileCanvasNode(node)) {
 		watchFileNodeIframe(node, onRefresh);
 		void syncFileNodeFromVault(node, app, canvasPath, onRefresh);
-		if (!node.nodeEl) return;
-		if (!node.nodeEl.dataset.mindvasMaskPending) {
-			node.nodeEl.dataset.mindvasMaskPending = "1";
+		const live = resolveLiveNodeEl(node);
+		if (!live || isMobileApp()) return;
+		if (!live.dataset.mindvasMaskPending) {
+			live.dataset.mindvasMaskPending = "1";
 			window.setTimeout(() => {
-				delete node.nodeEl?.dataset.mindvasMaskPending;
-				if (anyGestureActive) return;
+				delete live.dataset.mindvasMaskPending;
+				if (anyGestureActive || mobileMaskApplyPaused()) return;
 				void syncFileNodeFromVault(node, app, canvasPath, onRefresh);
 			}, 400);
 			window.setTimeout(() => {
-				if (anyGestureActive) return;
+				if (anyGestureActive || mobileMaskApplyPaused()) return;
 				void syncFileNodeFromVault(node, app, canvasPath, onRefresh);
 			}, 1200);
 		}
@@ -477,7 +480,8 @@ let anyGestureActive = false;
 // (nodeAtPt=N — touch falls through to canvas-wrapper → pan only). Cooldown
 // blocks heavy mask DOM writes until the card has settled.
 let maskApplyCooldownUntil = 0;
-const MOBILE_MASK_COOLDOWN_MS = 4000;
+const MOBILE_DRAG_COOLDOWN_MS = 1200;
+const MOBILE_TAP_COOLDOWN_MS = 150;
 
 function mobileMaskApplyPaused(): boolean {
 	return isMobileApp() && (anyGestureActive || Date.now() < maskApplyCooldownUntil);
@@ -685,6 +689,38 @@ export function registerCanvasMaskHandler(
 
 	const refresh = () => scheduleSync();
 
+	let mobileReconcileTimer: ReturnType<typeof setTimeout> | null = null;
+	const scheduleMobileDragReconcile = () => {
+		if (!mobile) return;
+		if (mobileReconcileTimer) clearTimeout(mobileReconcileTimer);
+		mobileReconcileTimer = setTimeout(() => {
+			mobileReconcileTimer = null;
+			if (interacting || pointerHeld || canvas.isDragging) {
+				scheduleMobileDragReconcile();
+				return;
+			}
+			for (const node of canvas.nodes.values()) {
+				if (!isMaskableCanvasNode(node)) continue;
+				if (isTextCanvasNode(node) && (node.isEditing || isTextCardEditing(node))) continue;
+				if (!isTextCanvasNode(node) && node.isEditing) continue;
+				reconcileMobileNodeHitTarget(node);
+				if (isNodeMasked(node.canvas, node.id)) {
+					ensureWholeNodeOverlay(node, canvasPath, refresh);
+					continue;
+				}
+				const source = getNodeTextSource(node);
+				const content = resolveInlineMaskContent(node);
+				const needsMask = hasInlineMasks(source) || previewHasMaskTags(node.nodeEl);
+				const hasOverlay = hasInlineMasks(source)
+					? textCardMaskApplied(node, source)
+					: textCardMaskApplied(node);
+				if (needsMask && !hasOverlay) {
+					syncOneNode(node, canvasPath, refresh, app);
+				}
+			}
+		}, MOBILE_DRAG_COOLDOWN_MS + 100);
+	};
+
 	// A pointer/wheel gesture is in progress — suppress sync until it settles.
 	// While a finger is still down (pointerHeld), keep re-arming: a long-press
 	// holds still (no pointermove) for a while before the drag begins, and if we
@@ -754,6 +790,7 @@ export function registerCanvasMaskHandler(
 	};
 	const onPointerRelease = (e: Event) => {
 		const id = (e as PointerEvent).pointerId;
+		const wasCardDrag = canvas.isDragging;
 		if (id == null) {
 			for (const t of activePointers.values()) clearTimeout(t);
 			activePointers.clear();
@@ -764,7 +801,16 @@ export function registerCanvasMaskHandler(
 		}
 		syncPointerHeld();
 		markInteracting();
-		if (mobile) maskApplyCooldownUntil = Date.now() + MOBILE_MASK_COOLDOWN_MS;
+		if (mobile) {
+			// Only block heavy mask re-apply after an actual card drag — not after
+			// every pan/tap (the old 4s-on-every-touch rule felt like a long freeze).
+			if (wasCardDrag) {
+				maskApplyCooldownUntil = Date.now() + MOBILE_DRAG_COOLDOWN_MS;
+				scheduleMobileDragReconcile();
+			} else {
+				maskApplyCooldownUntil = Date.now() + MOBILE_TAP_COOLDOWN_MS;
+			}
+		}
 		reportHud("UP", e, ++upCount);
 	};
 	// All mobile (phones + tablets): passive pointer tracking so any in-progress
@@ -852,10 +898,12 @@ export function registerCanvasMaskHandler(
 		if (++tick >= bootMax) window.clearInterval(bootInterval);
 	}, mobile ? 500 : 400);
 
-	const editScanInterval = window.setInterval(() => {
-		if (interacting || pointerHeld || canvas.isDragging) return;
-		scanCanvasEditingNodes(canvas.nodes.values());
-	}, mobile ? 900 : 500);
+	const editScanInterval = mobile
+		? null
+		: window.setInterval(() => {
+				if (interacting || pointerHeld || canvas.isDragging) return;
+				scanCanvasEditingNodes(canvas.nodes.values());
+			}, 500);
 
 	// Diagnostics only: live sample of drag/suppression state while at rest.
 	const hudSampler = window.setInterval(() => {
@@ -873,13 +921,17 @@ export function registerCanvasMaskHandler(
 			if (!isMaskableCanvasNode(node)) continue;
 			if (isTextCanvasNode(node) && (node.isEditing || isTextCardEditing(node))) continue;
 			if (!isTextCanvasNode(node) && node.isEditing) continue;
-			if (!node.nodeEl && !isTextCanvasNode(node)) continue;
-			if (isTextCanvasNode(node) && !resolveTextCardHost(node)) continue;
+			if (!resolveLiveNodeEl(node)) continue;
+			if (mobile) reconcileMobileNodeHitTarget(node);
 			const source = getNodeTextSource(node);
 			const needsMask = hasInlineMasks(source) || previewHasMaskTags(node.nodeEl);
 			const hasOverlay = hasInlineMasks(source)
 				? textCardMaskApplied(node, source)
 				: textCardMaskApplied(node);
+			if (isNodeMasked(node.canvas, node.id)) {
+				ensureWholeNodeOverlay(node, canvasPath, refresh);
+				continue;
+			}
 			if (needsMask && !hasOverlay) {
 				syncOneNode(node, canvasPath, refresh, app);
 				ensureNodeMaskWatch(node, canvasPath, app, refresh);
@@ -892,8 +944,9 @@ export function registerCanvasMaskHandler(
 	return () => {
 		if (origRequestFrame) canvas.requestFrame = origRequestFrame;
 		window.clearInterval(bootInterval);
-		window.clearInterval(editScanInterval);
+		if (editScanInterval !== null) window.clearInterval(editScanInterval);
 		window.clearInterval(maintainInterval);
+		if (mobileReconcileTimer) clearTimeout(mobileReconcileTimer);
 		window.clearInterval(hudSampler);
 		if (debounceTimer) clearTimeout(debounceTimer);
 		if (gestureTimer) clearTimeout(gestureTimer);
