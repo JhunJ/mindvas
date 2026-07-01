@@ -540,44 +540,11 @@ export function registerCanvasMaskHandler(
 	app: App
 ): () => void {
 	const mobile = isMobileApp();
-	const tablet = mobile && !isPhone();
 
-	// TABLETS: minimal mode. No MutationObserver, intervals, or requestFrame
-	// hook — those re-rendered cards mid-drag and cancelled native touch drags
-	// (canvas.isDragging is not reliably set on mobile, so it couldn't guard).
-	// Masks are applied on load and whenever a linked file changes; the canvas
-	// is otherwise left completely native so drag + box-select work.
-	if (tablet) {
-		const runOnce = () => {
-			try {
-				syncCanvasMaskUI(canvas, canvasPath, app);
-			} catch (err) {
-				console.error("Mindvas: tablet mask sync failed", err);
-			}
-		};
-		for (const ms of [0, 250, 700, 1600, 3000]) window.setTimeout(runOnce, ms);
-
-		const onVaultChangeTablet = app.vault.on("modify", (file) => {
-			if (!(file instanceof TFile)) return;
-			for (const node of canvas.nodes.values()) {
-				if (resolveFilePath(node) === file.path) {
-					invalidateFileContentCache(node);
-				}
-			}
-			window.setTimeout(runOnce, 50);
-		});
-
-		const cleanupSelectionTablet = trackCanvasSelection(canvas);
-
-		return () => {
-			app.vault.offref(onVaultChangeTablet);
-			cleanupSelectionTablet();
-			clearCanvasMaskUI(canvas);
-		};
-	}
-
-	// Only phones use the event-based gesture-suppression sync. Desktop uses the
-	// requestFrame-override sync.
+	// Phones: event-based gesture-suppression sync. Desktop: requestFrame-override
+	// sync. Tablets: neither pointer listeners nor a requestFrame hook (so native
+	// touch drag/box-select stay intact), but they DO keep the MutationObserver +
+	// maintenance intervals below so masks reapply after Obsidian re-renders.
 	const useEventSync = mobile && isPhone();
 	// Debounce sync so pan/zoom (which fire requestFrame dozens of times/sec on
 	// mobile) never trigger a full node scan mid-gesture.

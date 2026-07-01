@@ -571,6 +571,29 @@ body.mindvas-mobile .mindvas-mask-tape {
 	min-height: 44px;
 }
 
+/* Mobile/Tablet: never let Mindvas mask layers intercept canvas touch gestures.
+   Dragging cards and box-select must behave exactly as when the plugin is
+   disabled. Masking actions remain available through commands / quick actions. */
+body.mindvas-mobile .mindvas-mask-tape,
+body.mindvas-mobile .mindvas-mask-preview,
+body.mindvas-mobile .mindvas-inline-tape,
+body.mindvas-mobile .mindvas-inline-revealed,
+body.mindvas-mobile .mindvas-inline-mask-wrap {
+	pointer-events: none !important;
+	touch-action: auto !important;
+}
+
+@media (pointer: coarse) {
+	.mindvas-mask-tape,
+	.mindvas-mask-preview,
+	.mindvas-inline-tape,
+	.mindvas-inline-revealed,
+	.mindvas-inline-mask-wrap {
+		pointer-events: none !important;
+		touch-action: auto !important;
+	}
+}
+
 .mindvas-menu-swatch {
 	display: inline-block;
 	width: 12px;

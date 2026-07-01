@@ -1,5 +1,6 @@
 import type { Plugin } from "obsidian";
 import { toggleRevealed } from "./mask-reveal";
+import { isMobileApp } from "../ui/mobile-utils";
 
 type MaskRefreshFn = () => void;
 
@@ -15,6 +16,8 @@ export function getMaskCanvasRefresh(): MaskRefreshFn | null {
 
 /** Whole-card tape toggle (inline tapes use per-wrap pointerup handlers). */
 export function registerMaskClickDelegation(plugin: Plugin): void {
+	if (isMobileApp()) return;
+
 	plugin.registerDomEvent(
 		document,
 		"pointerup",

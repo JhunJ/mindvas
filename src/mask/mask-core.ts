@@ -1,4 +1,5 @@
 import type { Canvas, CanvasNode, CMContentElement, CMEditorView } from "../types/canvas-internal";
+import { isMobileApp } from "../ui/mobile-utils";
 
 export const MASK_DATA_KEY = "mindvasMask";
 export const MASK_STATS_KEY = "mindvasMaskStats";
@@ -129,9 +130,11 @@ export function wrapCanvasSelection(node: CanvasNode, color: MaskColor): boolean
 /** Stop canvas drag / selection from swallowing tape taps. Clicks use delegation + local handlers. */
 export function attachTapeToggle(el: HTMLElement, onToggle?: () => void): void {
 	el.classList.add("mindvas-mask-ui");
-	el.addEventListener("pointerdown", (e) => {
-		e.stopPropagation();
-	});
+	if (!isMobileApp()) {
+		el.addEventListener("pointerdown", (e) => {
+			e.stopPropagation();
+		});
+	}
 	if (onToggle) {
 		el.addEventListener("click", (e) => {
 			e.stopPropagation();

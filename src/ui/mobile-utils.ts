@@ -6,14 +6,26 @@ export function isMobileApp(): boolean {
 	return Platform.isMobileApp;
 }
 
+function mobileShortSide(): number {
+	const vv = window.visualViewport;
+	const w = vv?.width ?? window.innerWidth ?? 0;
+	const h = vv?.height ?? window.innerHeight ?? 0;
+	return Math.min(w, h);
+}
+
 /** True on phone-sized mobile screens. */
 export function isPhone(): boolean {
-	return Platform.isMobileApp && Platform.isPhone;
+	if (!Platform.isMobileApp) return false;
+	// Some Android tablets report Platform.isPhone. Prefer the actual viewport
+	// size so Galaxy Tab follows the tablet/native-canvas path.
+	if (mobileShortSide() >= 600) return false;
+	return Platform.isPhone && !Platform.isTablet;
 }
 
 /** True on tablet-sized mobile screens (Galaxy Tab, iPad). */
 export function isTablet(): boolean {
-	return Platform.isMobileApp && Platform.isTablet;
+	if (!Platform.isMobileApp) return false;
+	return Platform.isTablet || mobileShortSide() >= 600;
 }
 
 /** Add a body class so CSS can target touch devices without hover. */

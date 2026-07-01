@@ -137,9 +137,6 @@ export function insertImageToCanvas(
 			// Safety net: the progress notice always clears within 15s.
 			const safety = setTimeout(() => notice.hide(), 15000);
 			try {
-				// Read the intrinsic size in parallel with the vault write so the
-				// two slow steps overlap instead of adding up (matters on tablets).
-				const sizePromise = readImageSize(file);
 				const imageFile = await saveImageToVault(app, file, canvasPath);
 				if (!imageFile) {
 					new Notice("이미지 저장 실패");
@@ -157,6 +154,7 @@ export function insertImageToCanvas(
 							new Notice("선택한 노트에 이미지를 추가했습니다");
 							try {
 								canvas.selectOnly(target);
+								canvas.requestFrame();
 							} catch {
 								// best-effort
 							}
@@ -169,7 +167,7 @@ export function insertImageToCanvas(
 				}
 
 				// Nothing suitable selected — create a standalone image node.
-				const { width, height } = await sizePromise;
+				const { width, height } = await readImageSize(file);
 				const size = fitNodeSize(width, height);
 				const center = canvasApi.getViewportCenter(canvas);
 				const node = canvasApi.createFileNode(

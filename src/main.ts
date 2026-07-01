@@ -117,6 +117,8 @@ export default class CanvasMindMapPlugin extends Plugin {
 				() => this.canvasApi.getActiveCanvas() ?? this.canvasApi.getAnyCanvas(),
 				() => refreshAllCanvasMasks(this.app)
 			);
+			// Passive selection memory for quick-action commands. It never prevents
+			// default or stops propagation, so native drag/box-select remains intact.
 			this.cleanupGlobalMaskSelectionHandler = registerGlobalCanvasSelectionTracking(
 				() => this.canvasApi.getActiveCanvas() ?? this.canvasApi.getAnyCanvas()
 			);

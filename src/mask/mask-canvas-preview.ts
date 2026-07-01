@@ -32,6 +32,10 @@ function resolveCanvasFilePath(node: CanvasNode): string | null {
 	return null;
 }
 
+function isMarkdownPath(path: string): boolean {
+	return /\.(md|markdown)$/i.test(path);
+}
+
 export function findCanvasNodeByEl(app: App, nodeEl: HTMLElement): CanvasNode | null {
 	for (const leaf of app.workspace.getLeavesOfType("canvas")) {
 		const canvas = (leaf.view as { canvas?: { nodes: Map<string, CanvasNode> } }).canvas;
@@ -113,13 +117,14 @@ export function registerCanvasMarkdownMaskProcessor(plugin: Plugin): void {
 
 			if (isFileCanvasNode(node)) {
 				const path = resolveCanvasFilePath(node);
-				if (path) {
+				if (path && isMarkdownPath(path)) {
 					const file = plugin.app.vault.getAbstractFileByPath(path);
 					if (file instanceof TFile) {
 						void plugin.app.vault.read(file).then(applyText);
 						return;
 					}
 				}
+				if (path) return;
 			}
 
 			applyText(getCanvasNodeMaskSource(node));

@@ -2,6 +2,7 @@ import { normalizeMaskSyntax, attachTapeToggle, parseInlineMasks, type MaskColor
 import { isRevealed, toggleRevealed } from "./mask-reveal";
 import { markdownToPlainDisplay } from "./mask-source";
 import { applyMaskColorClass } from "./mask-colors";
+import { isMobileApp } from "../ui/mobile-utils";
 import {
 	resolveCanvasNodeFromEl,
 	ensureCanvasMaskStylesForNode,
@@ -43,6 +44,8 @@ function stampMaskEl(el: HTMLElement, key: string, content?: string): void {
 function bindWrapToggle(wrap: HTMLElement, content: string, key: string): void {
 	if (wrap.dataset.mindvasBound === key) return;
 	wrap.dataset.mindvasBound = key;
+
+	if (isMobileApp()) return;
 
 	const onToggle = (e: Event) => {
 		e.preventDefault();
