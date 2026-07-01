@@ -275,6 +275,12 @@ const fileSyncGeneration = new WeakMap<CanvasNode, number>();
 // MutationObserver) don't hit the disk every tick. Invalidated on vault modify.
 const fileContentCache = new WeakMap<CanvasNode, string | null>();
 
+/** Only markdown files can contain mask syntax. Reading images/PDFs as text
+ * (UTF-8 decoding large binaries) freezes the app, especially on tablets. */
+function isMarkdownPath(path: string): boolean {
+	return /\.(md|markdown)$/i.test(path);
+}
+
 function invalidateFileContentCache(node: CanvasNode): void {
 	fileContentCache.delete(node);
 }
@@ -291,6 +297,14 @@ async function syncFileNodeFromVault(
 	fileSyncGeneration.set(node, gen);
 
 	const path = resolveFilePath(node);
+	// Non-markdown embeds (images, PDFs, audio, etc.) can never hold mask syntax
+	// and must NOT be read as text — decoding a large binary as UTF-8 freezes
+	// the app and blocks subsequent touch input.
+	if (path && !isMarkdownPath(path)) {
+		removeInlinePreview(node);
+		setIframeVisible(node, true);
+		return;
+	}
 	let source: string | null = null;
 	if (path) {
 		if (fileContentCache.has(node)) {
