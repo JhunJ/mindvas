@@ -29,6 +29,7 @@ import { wrapCanvasSelection as wrapSel } from "./mask-core";
 import { applyMaskColorClass } from "./mask-colors";
 import { scanCanvasEditingNodes } from "./mask-canvas-editor-inject";
 import { getCanvasNodeMaskSource } from "./mask-canvas-preview";
+import { attachTapVsDrag } from "../ui/gesture-tap";
 import {
 	isTextCardReadMode,
 	isTextCardEditing,
@@ -207,35 +208,16 @@ function attachCardTapReveal(node: CanvasNode, key: string, onRefresh: () => voi
 	if (!el || el.dataset.mindvasTapReveal === "1") return;
 	el.dataset.mindvasTapReveal = "1";
 
-	let sx = 0;
-	let sy = 0;
-	let moved = false;
-	el.addEventListener(
-		"pointerdown",
-		(e: PointerEvent) => {
-			sx = e.clientX;
-			sy = e.clientY;
-			moved = false;
-		},
-		{ passive: true }
-	);
-	el.addEventListener(
-		"pointermove",
-		(e: PointerEvent) => {
-			if (Math.hypot(e.clientX - sx, e.clientY - sy) > 8) moved = true;
-		},
-		{ passive: true }
-	);
-	el.addEventListener(
-		"pointerup",
-		() => {
-			if (moved || node.isEditing) return;
-			if (!isNodeMasked(node.canvas, node.id)) return;
+	attachTapVsDrag(el, {
+		// Don't swallow the tap: the card should still be selectable. A drag
+		// (>slop) is ignored so the card moves natively.
+		swallowTap: false,
+		shouldTap: () => !node.isEditing && isNodeMasked(node.canvas, node.id),
+		onTap: () => {
 			toggleRevealed(key);
 			onRefresh();
 		},
-		{ passive: true }
-	);
+	});
 }
 
 function ensureWholeNodeOverlay(node: CanvasNode, canvasPath: string, onRefresh: () => void): void {

@@ -5,3 +5,6 @@ data.json
 src/**/*.js
 .claude/
 CLAUDE.md
+test/harness/harness.js
+test-results/
+playwright-report/

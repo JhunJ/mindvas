@@ -6,12 +6,15 @@
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production && node scripts/install-to-vault.mjs",
-		"install-to-vault": "node scripts/install-to-vault.mjs"
+		"install-to-vault": "node scripts/install-to-vault.mjs",
+		"test:harness": "esbuild test/harness/harness.ts --bundle --outfile=test/harness/harness.js --format=iife",
+		"test": "npm run test:harness && playwright test"
 	},
 	"keywords": [],
 	"author": "",
 	"license": "MIT",
 	"devDependencies": {
+		"@playwright/test": "^1.61.1",
 		"@types/node": "^20.11.0",
 		"builtin-modules": "^3.3.0",
 		"esbuild": "0.20.0",
