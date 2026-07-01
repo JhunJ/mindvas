@@ -64,7 +64,7 @@ export {
 
 import type { MaskColor } from "./mask-core";
 import { getLastMaskColor } from "./mask-colors";
-import { isMobileApp } from "../ui/mobile-utils";
+import { isMobileApp, isPhone } from "../ui/mobile-utils";
 
 export function wrapCanvasSelection(
 	node: CanvasNode,
@@ -513,6 +513,11 @@ export function registerCanvasMaskHandler(
 	app: App
 ): () => void {
 	const mobile = isMobileApp();
+	// Only phones use the event-based gesture-suppression sync. Tablets (e.g.
+	// Galaxy Tab) behave like desktop for pointer interaction, so they must use
+	// the proven requestFrame-override sync — the event-based path breaks
+	// press-and-drag to move cards on tablets (same regression seen on desktop).
+	const useEventSync = mobile && isPhone();
 	// Debounce sync so pan/zoom (which fire requestFrame dozens of times/sec on
 	// mobile) never trigger a full node scan mid-gesture.
 	const SYNC_DEBOUNCE = mobile ? 250 : 100;
@@ -562,9 +567,10 @@ export function registerCanvasMaskHandler(
 	const wrapper = canvas.wrapperEl;
 	const gestureOpts = { passive: true, capture: true } as AddEventListenerOptions;
 	const onGesture = () => markInteracting();
-	// Gesture suppression is a mobile performance measure only. On desktop it is
-	// unnecessary and we keep zero extra pointer listeners to avoid any drag regressions.
-	if (mobile) {
+	// Gesture suppression is a phone-only performance measure. On desktop AND
+	// tablets it is unnecessary and breaks press-and-drag to move cards, so we
+	// keep zero extra pointer listeners there.
+	if (useEventSync) {
 		wrapper?.addEventListener("pointerdown", onGesture, gestureOpts);
 		wrapper?.addEventListener("pointermove", onGesture, gestureOpts);
 		wrapper?.addEventListener("pointerup", onGesture, gestureOpts);
@@ -572,10 +578,10 @@ export function registerCanvasMaskHandler(
 		wrapper?.addEventListener("touchmove", onGesture, gestureOpts);
 	}
 
-	// Desktop keeps the proven per-frame mask reapply (rAF-debounced) that worked
-	// before the mobile rework — avoids any interaction regressions on desktop.
+	// Desktop + tablets keep the proven per-frame mask reapply (rAF-debounced)
+	// that worked before the mobile rework — avoids interaction regressions.
 	let origRequestFrame: (() => void) | null = null;
-	if (!mobile) {
+	if (!useEventSync) {
 		origRequestFrame = canvas.requestFrame.bind(canvas);
 		let frameSyncPending = false;
 		canvas.requestFrame = () => {
@@ -661,7 +667,7 @@ export function registerCanvasMaskHandler(
 		window.clearInterval(maintainInterval);
 		if (debounceTimer) clearTimeout(debounceTimer);
 		if (gestureTimer) clearTimeout(gestureTimer);
-		if (mobile) {
+		if (useEventSync) {
 			wrapper?.removeEventListener("pointerdown", onGesture, gestureOpts);
 			wrapper?.removeEventListener("pointermove", onGesture, gestureOpts);
 			wrapper?.removeEventListener("pointerup", onGesture, gestureOpts);

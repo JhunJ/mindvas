@@ -183,13 +183,9 @@ export function insertImageToCanvas(
 				}
 				canvas.requestSave();
 				try {
+					// Select only — do NOT auto-zoom to the image. The forced
+					// zoom felt like a "stuck zoomed-in" state on tablets.
 					canvas.selectOnly(node);
-					canvas.zoomToBbox?.({
-						minX: node.x - 40,
-						minY: node.y - 40,
-						maxX: node.x + node.width + 40,
-						maxY: node.y + node.height + 40,
-					});
 				} catch {
 					// best-effort
 				}

@@ -369,6 +369,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 		this.addCommand({
 			id: "mindmap-toggle-node-mask",
 			name: "마스킹: 선택 가리기/보이기",
+			icon: "bandage",
 			checkCallback: (checking: boolean) => {
 				const canvas = this.canvasApi.getActiveCanvas();
 				if (!canvas) return false;
@@ -382,6 +383,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 		this.addCommand({
 			id: "mindmap-cover-all-masks",
 			name: "마스킹: 전부 다시 가리기",
+			icon: "eye-off",
 			checkCallback: (checking: boolean) => {
 				const canvas = this.canvasApi.getActiveCanvas();
 				if (!canvas) return false;
@@ -394,6 +396,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 		this.addCommand({
 			id: "mindmap-reveal-all-masks",
 			name: "마스킹: 전부 보이기",
+			icon: "eye",
 			checkCallback: (checking: boolean) => {
 				const canvas = this.canvasApi.getActiveCanvas();
 				if (!canvas) return false;
@@ -408,6 +411,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 			this.addCommand({
 				id: `mask-color-${color}`,
 				name: `마스킹: ${MASK_COLORS[color].label}(${color})로 가리기`,
+				icon: "highlighter",
 				checkCallback: (checking: boolean) => {
 					const canvas = this.canvasApi.getActiveCanvas();
 					if (!canvas) return false;
@@ -423,6 +427,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 		this.addCommand({
 			id: "open-mask-panel",
 			name: "마스킹: 목록 열기",
+			icon: "list",
 			callback: () => void this.openMaskPanel(),
 		});
 
@@ -430,6 +435,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 		this.addCommand({
 			id: "insert-image",
 			name: "이미지 삽입",
+			icon: "image",
 			checkCallback: (checking: boolean) => {
 				const canvas = this.canvasApi.getActiveCanvas();
 				if (!canvas) return false;
