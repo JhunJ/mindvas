@@ -11,6 +11,23 @@ type AttachmentApp = App & {
 	};
 };
 
+/** Resolve `p`, but give up with `fallback` after `ms` so a hung API can't stall. */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+	return Promise.race([
+		p.catch(() => fallback),
+		new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+	]);
+}
+
+/** Ensure a unique vault path even if getAvailablePathForAttachment is unavailable. */
+function uniqueVaultPath(app: App, name: string): string {
+	if (!app.vault.getAbstractFileByPath(name)) return name;
+	const dot = name.lastIndexOf(".");
+	const base = dot > 0 ? name.slice(0, dot) : name;
+	const ext = dot > 0 ? name.slice(dot) : "";
+	return `${base}-${Date.now()}${ext}`;
+}
+
 /** Save picked image bytes into the vault's attachment folder. */
 async function saveImageToVault(
 	app: App,
@@ -21,20 +38,28 @@ async function saveImageToVault(
 	const safeName = file.name && file.name.trim() ? file.name : `pasted-image-${Date.now()}.png`;
 
 	const fm = (app as AttachmentApp).fileManager;
-	let targetPath = safeName;
-	try {
-		if (typeof fm.getAvailablePathForAttachment === "function") {
-			targetPath = await fm.getAvailablePathForAttachment(safeName, canvasPath);
-		}
-	} catch {
-		targetPath = safeName;
+	let targetPath = uniqueVaultPath(app, safeName);
+	if (typeof fm.getAvailablePathForAttachment === "function") {
+		// This can hang on some mobile builds — cap it and fall back to a unique
+		// name in the vault root so saving always proceeds.
+		targetPath = await withTimeout(
+			fm.getAvailablePathForAttachment(safeName, canvasPath),
+			3000,
+			targetPath
+		);
 	}
 
 	try {
 		return await app.vault.createBinary(targetPath, buf);
 	} catch (err) {
 		console.error("Mindvas: failed to save image to vault", err);
-		return null;
+		// Retry once under a guaranteed-unique root path.
+		try {
+			return await app.vault.createBinary(uniqueVaultPath(app, safeName), buf);
+		} catch (err2) {
+			console.error("Mindvas: image save retry failed", err2);
+			return null;
+		}
 	}
 }
 
@@ -133,9 +158,9 @@ export function insertImageToCanvas(
 			input.remove();
 			if (!file) return;
 
-			const notice = new Notice("이미지 삽입 중…", 0);
-			// Safety net: the progress notice always clears within 15s.
-			const safety = setTimeout(() => notice.hide(), 15000);
+			const notice = new Notice("이미지 저장 중…", 0);
+			// Safety net: the progress notice always clears within 20s.
+			const safety = setTimeout(() => notice.hide(), 20000);
 			try {
 				const imageFile = await saveImageToVault(app, file, canvasPath);
 				if (!imageFile) {
@@ -150,7 +175,13 @@ export function insertImageToCanvas(
 				if (target) {
 					const targetFilePath = resolveCanvasFilePath(target);
 					if (targetFilePath) {
-						if (await embedIntoFileNode(app, targetFilePath, imageFile)) {
+						notice.setMessage("노트에 추가 중…");
+						const appended = await withTimeout(
+							embedIntoFileNode(app, targetFilePath, imageFile),
+							6000,
+							false
+						);
+						if (appended) {
 							new Notice("선택한 노트에 이미지를 추가했습니다");
 							try {
 								canvas.selectOnly(target);
@@ -167,6 +198,7 @@ export function insertImageToCanvas(
 				}
 
 				// Nothing suitable selected — create a standalone image node.
+				notice.setMessage("이미지 노드 생성 중…");
 				const { width, height } = await readImageSize(file);
 				const size = fitNodeSize(width, height);
 				const center = canvasApi.getViewportCenter(canvas);
