@@ -271,6 +271,13 @@ async function readVaultFile(app: App, path: string): Promise<string | null> {
 }
 
 const fileSyncGeneration = new WeakMap<CanvasNode, number>();
+// Cache file-node contents so repeated syncs (boot/maintain intervals,
+// MutationObserver) don't hit the disk every tick. Invalidated on vault modify.
+const fileContentCache = new WeakMap<CanvasNode, string | null>();
+
+function invalidateFileContentCache(node: CanvasNode): void {
+	fileContentCache.delete(node);
+}
 
 async function syncFileNodeFromVault(
 	node: CanvasNode,
@@ -286,7 +293,13 @@ async function syncFileNodeFromVault(
 	const path = resolveFilePath(node);
 	let source: string | null = null;
 	if (path) {
-		source = await readVaultFile(app, path);
+		if (fileContentCache.has(node)) {
+			source = fileContentCache.get(node) ?? null;
+		} else {
+			source = await readVaultFile(app, path);
+			if (fileSyncGeneration.get(node) !== gen) return;
+			fileContentCache.set(node, source);
+		}
 	}
 	if (fileSyncGeneration.get(node) !== gen) return;
 
@@ -621,7 +634,10 @@ export function registerCanvasMaskHandler(
 	const onVaultChange = app.vault.on("modify", (file) => {
 		if (!(file instanceof TFile)) return;
 		for (const node of canvas.nodes.values()) {
-			if (resolveFilePath(node) === file.path) scheduleSync();
+			if (resolveFilePath(node) === file.path) {
+				invalidateFileContentCache(node);
+				scheduleSync();
+			}
 		}
 	});
 
