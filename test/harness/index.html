@@ -51,6 +51,13 @@
 				font-size: 11px;
 				color: #152a5a;
 			}
+			.mindvas-inline-mask-wrap {
+				/* Inline masks are small and DO catch touches (tap-vs-drag in JS). */
+				pointer-events: auto;
+				background: rgba(120, 170, 255, 0.85);
+				border-radius: 3px;
+				padding: 1px 4px;
+			}
 		</style>
 	</head>
 	<body>

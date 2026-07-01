@@ -3,6 +3,7 @@ import { isRevealed, toggleRevealed } from "./mask-reveal";
 import { markdownToPlainDisplay } from "./mask-source";
 import { applyMaskColorClass } from "./mask-colors";
 import { isMobileApp } from "../ui/mobile-utils";
+import { attachTapVsDrag } from "../ui/gesture-tap";
 import {
 	resolveCanvasNodeFromEl,
 	ensureCanvasMaskStylesForNode,
@@ -52,37 +53,9 @@ function bindWrapToggle(wrap: HTMLElement, content: string, key: string): void {
 	};
 
 	if (isMobileApp()) {
-		// Tap toggles reveal; a drag (>8px) falls through so a canvas card still
-		// moves. pointerdown/move stay passive and never stop propagation.
-		let sx = 0;
-		let sy = 0;
-		let moved = false;
-		wrap.addEventListener(
-			"pointerdown",
-			(e: PointerEvent) => {
-				sx = e.clientX;
-				sy = e.clientY;
-				moved = false;
-			},
-			{ passive: true }
-		);
-		wrap.addEventListener(
-			"pointermove",
-			(e: PointerEvent) => {
-				if (Math.hypot(e.clientX - sx, e.clientY - sy) > 8) moved = true;
-			},
-			{ passive: true }
-		);
-		wrap.addEventListener(
-			"pointerup",
-			(e: Event) => {
-				if (moved) return;
-				e.preventDefault();
-				e.stopPropagation();
-				doToggle();
-			},
-			{ capture: true }
-		);
+		// Touch: a stationary tap toggles reveal; a drag (>slop) falls through so a
+		// canvas card still moves. Shared with the plugin's card handler + tests.
+		attachTapVsDrag(wrap, { onTap: doToggle });
 	} else {
 		wrap.addEventListener(
 			"pointerup",

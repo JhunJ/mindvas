@@ -8,9 +8,11 @@ interface CardState {
 	id: string;
 	x: number;
 	y: number;
-	masked: boolean;
+	kind: "whole" | "plain" | "inline";
 	revealed: boolean;
+	inlineRevealed: boolean;
 	dragCancelled: boolean;
+	maskVisible: boolean;
 }
 
 async function reset(page: Page, suppressDuringTouch: boolean): Promise<void> {
@@ -25,10 +27,10 @@ async function getState(page: Page, id: string): Promise<CardState> {
 	return s as CardState;
 }
 
-/** Fire a stationary tap (pointerdown+up at the card centre). */
-async function tap(page: Page, id: string): Promise<void> {
-	await page.evaluate((id) => {
-		const el = document.querySelector(`.canvas-node[data-id="${id}"]`) as HTMLElement;
+/** Tap (pointerdown+up, no movement) at the centre of a CSS-selected element. */
+async function tapEl(page: Page, selector: string): Promise<void> {
+	await page.evaluate((selector) => {
+		const el = document.querySelector(selector) as HTMLElement;
 		const r = el.getBoundingClientRect();
 		const cx = r.left + r.width / 2;
 		const cy = r.top + r.height / 2;
@@ -38,20 +40,20 @@ async function tap(page: Page, id: string): Promise<void> {
 			);
 		fire("pointerdown");
 		fire("pointerup");
-	}, id);
+	}, selector);
 }
 
-/** Drag a card by (dx,dy) in `steps`; optionally run a maintenance sweep mid-drag. */
-async function drag(
+/** Drag from the centre of a CSS-selected element by (dx,dy). */
+async function dragEl(
 	page: Page,
-	id: string,
+	selector: string,
 	dx: number,
 	dy: number,
-	opts: { midSweep?: boolean } = {}
+	opts: { midDropAndSweep?: string } = {}
 ): Promise<void> {
 	await page.evaluate(
-		({ id, dx, dy, midSweep }) => {
-			const el = document.querySelector(`.canvas-node[data-id="${id}"]`) as HTMLElement;
+		({ selector, dx, dy, dropId }) => {
+			const el = document.querySelector(selector) as HTMLElement;
 			const r = el.getBoundingClientRect();
 			const cx = r.left + r.width / 2;
 			const cy = r.top + r.height / 2;
@@ -63,37 +65,59 @@ async function drag(
 			const steps = 5;
 			for (let i = 1; i <= steps; i++) {
 				fire("pointermove", cx + (dx * i) / steps, cy + (dy * i) / steps);
-				if (midSweep && i === 3) (window as any).harness.runMaintenanceSweep();
+				// Mid-drag: Obsidian clears our mask overlay, then our maintenance
+				// sweep tries to restore it. That restore (a content rebuild) is what
+				// can cancel the drag — unless suppression skips it during the touch.
+				if (dropId && i === 3) {
+					(window as any).harness.externalReRender(dropId);
+					(window as any).harness.runMaintenanceSweep();
+				}
 			}
 			fire("pointerup", cx + dx, cy + dy);
 		},
-		{ id, dx, dy, midSweep: opts.midSweep ?? false }
+		{ selector, dx, dy, dropId: opts.midDropAndSweep ?? null }
 	);
 }
+
+/** Drag starting at an absolute point (used for empty-canvas box-select). */
+async function dragFromPoint(page: Page, x: number, y: number, dx: number, dy: number): Promise<void> {
+	await page.evaluate(
+		({ x, y, dx, dy }) => {
+			const wrapper = document.getElementById("canvas-wrapper") as HTMLElement;
+			const fire = (t: string, px: number, py: number) =>
+				wrapper.dispatchEvent(
+					new PointerEvent(t, { pointerId: 1, pointerType: "touch", clientX: px, clientY: py, bubbles: true, cancelable: true })
+				);
+			fire("pointerdown", x, y);
+			const steps = 5;
+			for (let i = 1; i <= steps; i++) fire("pointermove", x + (dx * i) / steps, y + (dy * i) / steps);
+			fire("pointerup", x + dx, y + dy);
+		},
+		{ x, y, dx, dy }
+	);
+}
+
+const cardSel = (id: string) => `.canvas-node[data-id="${id}"]`;
+const inlineSel = (id: string) => `${cardSel(id)} .mindvas-inline-mask-wrap`;
 
 test.beforeEach(async ({ page }) => {
 	await page.goto(harnessUrl);
 	await reset(page, true);
 });
 
-test("stationary tap on a masked card toggles reveal", async ({ page }) => {
+// --- whole-card mask: tap reveals, drag moves ---
+
+test("whole-card: stationary tap toggles reveal", async ({ page }) => {
 	expect((await getState(page, "A")).revealed).toBe(false);
-	await tap(page, "A");
+	await tapEl(page, cardSel("A"));
 	expect((await getState(page, "A")).revealed).toBe(true);
-	await tap(page, "A");
+	await tapEl(page, cardSel("A"));
 	expect((await getState(page, "A")).revealed).toBe(false);
 });
 
-test("dragging an unmasked card moves it", async ({ page }) => {
-	const before = await getState(page, "B");
-	await drag(page, "B", 120, 0);
-	const after = await getState(page, "B");
-	expect(after.x).toBeCloseTo(before.x + 120, 0);
-});
-
-test("dragging a masked card moves it and does NOT toggle reveal", async ({ page }) => {
+test("whole-card: drag moves the card and never toggles reveal", async ({ page }) => {
 	const before = await getState(page, "A");
-	await drag(page, "A", 100, 60);
+	await dragEl(page, cardSel("A"), 100, 60);
 	const after = await getState(page, "A");
 	expect(after.x).toBeCloseTo(before.x + 100, 0);
 	expect(after.y).toBeCloseTo(before.y + 60, 0);
@@ -101,20 +125,82 @@ test("dragging a masked card moves it and does NOT toggle reveal", async ({ page
 	expect(after.dragCancelled).toBe(false);
 });
 
-test("with suppression ON, a mid-drag re-render does not cancel the drag", async ({ page }) => {
+test("plain card drags (baseline)", async ({ page }) => {
+	const before = await getState(page, "B");
+	await dragEl(page, cardSel("B"), 120, 0);
+	expect((await getState(page, "B")).x).toBeCloseTo(before.x + 120, 0);
+});
+
+// --- inline mask: tap reveals, drag moves the card ---
+
+test("inline: stationary tap toggles inline reveal without moving the card", async ({ page }) => {
+	const before = await getState(page, "C");
+	expect(before.inlineRevealed).toBe(false);
+	await tapEl(page, inlineSel("C"));
+	const after = await getState(page, "C");
+	expect(after.inlineRevealed).toBe(true);
+	expect(after.x).toBeCloseTo(before.x, 0);
+	expect(after.y).toBeCloseTo(before.y, 0);
+});
+
+test("inline: dragging over an inline mask moves the card and does not reveal", async ({ page }) => {
+	const before = await getState(page, "C");
+	await dragEl(page, inlineSel("C"), 90, 40);
+	const after = await getState(page, "C");
+	expect(after.x).toBeCloseTo(before.x + 90, 0);
+	expect(after.y).toBeCloseTo(before.y + 40, 0);
+	expect(after.inlineRevealed).toBe(false);
+});
+
+// --- box-select vs card gesture ---
+
+test("empty-canvas drag box-selects intersecting cards", async ({ page }) => {
+	await dragFromPoint(page, 20, 20, 380, 220);
+	const gesture = await page.evaluate(() => (window as any).harness.getLastGesture());
+	const selection = await page.evaluate(() => (window as any).harness.getSelection());
+	expect(gesture).toBe("box");
+	expect(selection).toContain("A");
+});
+
+test("dragging on a masked card is a card gesture, not a box-select", async ({ page }) => {
+	await dragEl(page, cardSel("A"), 100, 0);
+	const gesture = await page.evaluate(() => (window as any).harness.getLastGesture());
+	expect(gesture).toBe("card");
+});
+
+// --- mid-drag re-render (the intermittent "됐다 안 됐다") ---
+
+test("suppression ON: a mask restore is deferred during touch, so the drag survives", async ({ page }) => {
 	const before = await getState(page, "A");
-	await drag(page, "A", 150, 0, { midSweep: true });
+	await dragEl(page, cardSel("A"), 150, 0, { midDropAndSweep: "A" });
 	const after = await getState(page, "A");
 	expect(after.dragCancelled).toBe(false);
 	expect(after.x).toBeCloseTo(before.x + 150, 0);
 });
 
-test("control: with suppression OFF, a mid-drag re-render cancels the drag", async ({ page }) => {
+test("control: suppression OFF lets a mid-drag mask restore cancel the drag", async ({ page }) => {
 	await reset(page, false);
 	const before = await getState(page, "A");
-	await drag(page, "A", 150, 0, { midSweep: true });
+	await dragEl(page, cardSel("A"), 150, 0, { midDropAndSweep: "A" });
 	const after = await getState(page, "A");
-	// The sweep fired at 3/5 of the drag, rebuilding the card and cancelling it.
 	expect(after.dragCancelled).toBe(true);
 	expect(after.x).toBeLessThan(before.x + 150);
+});
+
+// --- mask must not vanish after Obsidian re-renders a card (self-heal) ---
+
+test("whole-card mask restored after an external re-render", async ({ page }) => {
+	expect((await getState(page, "A")).maskVisible).toBe(true);
+	await page.evaluate(() => (window as any).harness.externalReRender("A"));
+	expect((await getState(page, "A")).maskVisible).toBe(false);
+	await page.evaluate(() => (window as any).harness.runMaintenanceSweep());
+	expect((await getState(page, "A")).maskVisible).toBe(true);
+});
+
+test("inline mask restored after an external re-render", async ({ page }) => {
+	expect((await getState(page, "C")).maskVisible).toBe(true);
+	await page.evaluate(() => (window as any).harness.externalReRender("C"));
+	expect((await getState(page, "C")).maskVisible).toBe(false);
+	await page.evaluate(() => (window as any).harness.runMaintenanceSweep());
+	expect((await getState(page, "C")).maskVisible).toBe(true);
 });

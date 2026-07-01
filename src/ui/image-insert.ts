@@ -4,20 +4,13 @@ import type { Canvas, CanvasNode } from "../types/canvas-internal";
 import type { CanvasAPI } from "../canvas/canvas-api";
 import { resolveCanvasFilePath } from "../mask/mask-canvas";
 import { resolveMaskTargetNode } from "../mask/mask-selection";
+import { withTimeout } from "./async-timeout";
 
 type AttachmentApp = App & {
 	fileManager: {
 		getAvailablePathForAttachment?: (fileName: string, sourcePath?: string) => Promise<string>;
 	};
 };
-
-/** Resolve `p`, but give up with `fallback` after `ms` so a hung API can't stall. */
-function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
-	return Promise.race([
-		p.catch(() => fallback),
-		new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
-	]);
-}
 
 /** Ensure a unique vault path even if getAvailablePathForAttachment is unavailable. */
 function uniqueVaultPath(app: App, name: string): string {
