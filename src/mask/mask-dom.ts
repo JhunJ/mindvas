@@ -45,22 +45,60 @@ function bindWrapToggle(wrap: HTMLElement, content: string, key: string): void {
 	if (wrap.dataset.mindvasBound === key) return;
 	wrap.dataset.mindvasBound = key;
 
-	const onToggle = (e: Event) => {
-		// On mobile canvas, let the touch fall through to the card so it can be
-		// dragged/selected. Document (reading/edit) views still tap-to-reveal.
-		if (isMobileApp() && wrap.closest(".canvas-node")) return;
-		e.preventDefault();
-		e.stopPropagation();
+	const doToggle = () => {
 		toggleRevealed(key);
 		const color = (wrap.dataset.mindvasColor as MaskColor | undefined) ?? "yellow";
 		refreshMaskTapeElement(wrap, content, key, color);
 	};
 
-	wrap.addEventListener("pointerup", onToggle, { capture: true });
+	if (isMobileApp()) {
+		// Tap toggles reveal; a drag (>8px) falls through so a canvas card still
+		// moves. pointerdown/move stay passive and never stop propagation.
+		let sx = 0;
+		let sy = 0;
+		let moved = false;
+		wrap.addEventListener(
+			"pointerdown",
+			(e: PointerEvent) => {
+				sx = e.clientX;
+				sy = e.clientY;
+				moved = false;
+			},
+			{ passive: true }
+		);
+		wrap.addEventListener(
+			"pointermove",
+			(e: PointerEvent) => {
+				if (Math.hypot(e.clientX - sx, e.clientY - sy) > 8) moved = true;
+			},
+			{ passive: true }
+		);
+		wrap.addEventListener(
+			"pointerup",
+			(e: Event) => {
+				if (moved) return;
+				e.preventDefault();
+				e.stopPropagation();
+				doToggle();
+			},
+			{ capture: true }
+		);
+	} else {
+		wrap.addEventListener(
+			"pointerup",
+			(e: Event) => {
+				e.preventDefault();
+				e.stopPropagation();
+				doToggle();
+			},
+			{ capture: true }
+		);
+	}
+
 	wrap.addEventListener("keydown", (e) => {
 		if (e.key === "Enter" || e.key === " ") {
 			e.preventDefault();
-			onToggle(e);
+			doToggle();
 		}
 	});
 }

@@ -16,18 +16,68 @@ export function getMaskCanvasRefresh(): MaskRefreshFn | null {
 
 /** Whole-card tape toggle (inline tapes use per-wrap pointerup handlers). */
 export function registerMaskClickDelegation(plugin: Plugin): void {
-	if (isMobileApp()) return;
+	const mobile = isMobileApp();
+
+	// On touch a whole-card tape covers the card, so we must tell a tap (toggle
+	// reveal) apart from a drag (move the card). pointerdown/move are passive and
+	// never stop propagation, so the canvas still receives them and drags/box-
+	// selects the card; only a stationary tap toggles the mask on pointerup.
+	let downTape: HTMLElement | null = null;
+	let startX = 0;
+	let startY = 0;
+	let moved = false;
+	const DRAG_SLOP = 8;
+
+	if (mobile) {
+		plugin.registerDomEvent(
+			document,
+			"pointerdown",
+			(e) => {
+				const target = e.target as HTMLElement | null;
+				downTape = target?.closest<HTMLElement>(".mindvas-mask-tape") ?? null;
+				if (downTape && target?.closest(".mindvas-inline-mask-wrap")) downTape = null;
+				startX = e.clientX;
+				startY = e.clientY;
+				moved = false;
+			},
+			{ capture: true, passive: true }
+		);
+		plugin.registerDomEvent(
+			document,
+			"pointermove",
+			(e) => {
+				if (!downTape) return;
+				if (Math.hypot(e.clientX - startX, e.clientY - startY) > DRAG_SLOP) moved = true;
+			},
+			{ capture: true, passive: true }
+		);
+	}
 
 	plugin.registerDomEvent(
 		document,
 		"pointerup",
 		(e) => {
 			const target = e.target as HTMLElement | null;
-			if (!target) return;
-			if (target.closest(".mindvas-inline-mask-wrap")) return;
+			if (!target) {
+				downTape = null;
+				return;
+			}
+			if (target.closest(".mindvas-inline-mask-wrap")) {
+				downTape = null;
+				return;
+			}
 
 			const tape = target.closest<HTMLElement>(".mindvas-mask-tape");
-			if (!tape) return;
+			if (!tape) {
+				downTape = null;
+				return;
+			}
+
+			// A drag on the tape (card move) must not toggle the mask.
+			if (mobile && moved) {
+				downTape = null;
+				return;
+			}
 
 			const key = tape.dataset.mindvasKey;
 			if (!key) return;
@@ -36,6 +86,7 @@ export function registerMaskClickDelegation(plugin: Plugin): void {
 			e.stopPropagation();
 			toggleRevealed(key);
 			refreshCanvasMasks?.();
+			downTape = null;
 		},
 		{ capture: true }
 	);
