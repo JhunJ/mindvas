@@ -15,7 +15,7 @@ interface Win {
 
 let hudEl: HTMLElement | null = null;
 const lines = new Map<string, string>();
-const lineOrder = ["DOWN", "UP", "now"];
+const lineOrder = ["DOWN", "pt", "UP", "now"];
 
 export function hudEnabled(): boolean {
 	return !!(window as unknown as Win)[FLAG];

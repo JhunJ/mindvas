@@ -417,9 +417,11 @@ function syncOneNode(
 			node.nodeEl.dataset.mindvasMaskPending = "1";
 			window.setTimeout(() => {
 				delete node.nodeEl?.dataset.mindvasMaskPending;
+				if (anyGestureActive) return;
 				void syncFileNodeFromVault(node, app, canvasPath, onRefresh);
 			}, 400);
 			window.setTimeout(() => {
+				if (anyGestureActive) return;
 				void syncFileNodeFromVault(node, app, canvasPath, onRefresh);
 			}, 1200);
 		}
@@ -446,6 +448,15 @@ function syncOneNode(
 	removeInlinePreview(node);
 }
 
+// Set by the active canvas' pointer handlers: true while any mobile touch
+// gesture (long-press, drag, box-select, pan) is in progress. Per-node mask
+// re-application MUST honor this — re-rendering a card mid-gesture cancels the
+// native drag and can leave the card un-hittable (touch falls through to the
+// canvas wrapper → pans instead of grabbing). The canvas-level sync already
+// respects suppression; this shares that state with the per-node paths
+// (MutationObserver, retry timers) that previously ran unguarded.
+let anyGestureActive = false;
+
 const textSyncGeneration = new WeakMap<CanvasNode, number>();
 
 function scheduleTextNodeMaskRetries(
@@ -459,6 +470,7 @@ function scheduleTextNodeMaskRetries(
 	textSyncGeneration.set(node, gen);
 
 	const retry = () => {
+		if (anyGestureActive) return;
 		if (textSyncGeneration.get(node) !== gen || !isTextCardReadMode(node)) return;
 		const content = resolveInlineMaskContent(node);
 		if (!content) return;
@@ -481,11 +493,19 @@ function ensureNodeMaskWatch(
 	app: App,
 	refresh: () => void
 ): void {
+	// On mobile the per-node observer is the main culprit behind the "moved card
+	// can't be grabbed for a while" bug: after a move Obsidian re-renders the card
+	// repeatedly (embed reload, layout) and this observer re-applied the mask on
+	// every mutation — unguarded by touch suppression — leaving the card
+	// un-hittable during that window. The gated maintenance interval restores
+	// missing masks safely instead.
+	if (isMobileApp()) return;
 	if (nodeMaskWatchers.has(node)) return;
 	const host = isTextCanvasNode(node) ? resolveTextCardHost(node) : node.nodeEl;
 	if (!host) return;
 
 	const observer = new MutationObserver(() => {
+		if (anyGestureActive) return;
 		if (isTextCanvasNode(node) && !isTextCardReadMode(node)) return;
 		if (!isTextCanvasNode(node) && node.isEditing) return;
 		const needsMask =
@@ -598,6 +618,7 @@ export function registerCanvasMaskHandler(
 	const POINTER_SAFETY_MS = 6000;
 	const syncPointerHeld = () => {
 		pointerHeld = activePointers.size > 0;
+		anyGestureActive = interacting || pointerHeld;
 	};
 	// Diagnostics only (HUD): observe when sync runs vs. when a gesture starts.
 	let lastSyncAt = 0;
@@ -642,6 +663,7 @@ export function registerCanvasMaskHandler(
 	// drag. This was the "works, then breaks when I touch something" bug.
 	const markInteracting = () => {
 		interacting = true;
+		anyGestureActive = true;
 		if (gestureTimer) clearTimeout(gestureTimer);
 		gestureTimer = setTimeout(() => {
 			gestureTimer = null;
@@ -650,6 +672,7 @@ export function registerCanvasMaskHandler(
 				return;
 			}
 			interacting = false;
+			anyGestureActive = pointerHeld;
 			scheduleSync();
 		}, GESTURE_IDLE);
 	};
@@ -667,6 +690,23 @@ export function registerCanvasMaskHandler(
 			phase,
 			`#${n} ${cardEl ? "CARD" : "empty"} isDrag=${canvas.isDragging ? 1 : 0} int=${interacting ? 1 : 0} ph=${activePointers.size} dSync=${sinceSync} syncN=${syncCount} tgt=${tgt}`
 		);
+		// On a pointerdown that missed a card, inspect what's actually at the touch
+		// point: is there a .canvas-node there but with pointer-events:none? or is
+		// no node rendered at that spot at all?
+		if (phase === "DOWN") {
+			const pe = e as PointerEvent;
+			const stack = (document.elementsFromPoint?.(pe.clientX, pe.clientY) ?? []) as HTMLElement[];
+			const node = stack.find((el) => el.classList?.contains?.("canvas-node")) as HTMLElement | undefined;
+			const nodePE = node ? getComputedStyle(node).pointerEvents : "-";
+			const nodeCls = node ? String(node.className).replace("canvas-node", "").trim().slice(0, 22) : "-";
+			const top = stack[0];
+			const topCls = top ? String(top.className).split(" ").slice(0, 2).join(".").slice(0, 20) : "-";
+			const topPE = top ? getComputedStyle(top).pointerEvents : "-";
+			hudLine(
+				"pt",
+				`nodeAtPt=${node ? "Y" : "N"} nodePE=${nodePE} nodeCls=[${nodeCls}] top=${topCls}(${topPE})`
+			);
+		}
 	};
 	const onPointerDown = (e: Event) => {
 		const id = (e as PointerEvent).pointerId ?? 0;
@@ -836,6 +876,7 @@ export function registerCanvasMaskHandler(
 		}
 		for (const t of activePointers.values()) clearTimeout(t);
 		activePointers.clear();
+		anyGestureActive = false;
 		observer.disconnect();
 		app.vault.offref(onVaultChange);
 		cleanupSelection();
