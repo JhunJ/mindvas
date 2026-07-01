@@ -30,7 +30,7 @@ import { applyMaskColorClass } from "./mask-colors";
 import { scanCanvasEditingNodes } from "./mask-canvas-editor-inject";
 import { getCanvasNodeMaskSource } from "./mask-canvas-preview";
 import { attachTapVsDrag } from "../ui/gesture-tap";
-import { hudSet, hudEnabled } from "../ui/touch-hud";
+import { hudLine, hudEnabled } from "../ui/touch-hud";
 import {
 	isTextCardReadMode,
 	isTextCardEditing,
@@ -616,8 +616,6 @@ export function registerCanvasMaskHandler(
 			syncCanvasMaskUI(canvas, canvasPath, app);
 			lastSyncAt = Date.now();
 			syncCount++;
-			hudSet("syncN", syncCount);
-			hudSet("sinceSync", 0);
 		} finally {
 			syncing = false;
 		}
@@ -659,19 +657,16 @@ export function registerCanvasMaskHandler(
 	const wrapper = canvas.wrapperEl;
 	const gestureOpts = { passive: true, capture: true } as AddEventListenerOptions;
 	const onGesture = () => markInteracting();
-	const reportHud = (e: Event) => {
+	const reportHud = (phase: string, e: Event, n: number) => {
 		if (!hudEnabled()) return;
 		const t = e.target as HTMLElement | null;
 		const cardEl = t?.closest?.(".canvas-node") as HTMLElement | null;
-		hudSet("down", downCount);
-		hudSet("up", upCount);
-		hudSet("tgt", t?.className ? String(t.className).slice(0, 22) : t?.tagName ?? "?");
-		hudSet("dragTgt", cardEl ? "card" : "empty");
-		hudSet("int", interacting ? 1 : 0);
-		hudSet("ph", activePointers.size);
-		hudSet("isDrag", canvas.isDragging ? 1 : 0);
-		hudSet("sinceSync", lastSyncAt ? Date.now() - lastSyncAt : -1);
-		hudSet("syncN", syncCount);
+		const tgt = t?.className ? String(t.className).slice(0, 18) : t?.tagName ?? "?";
+		const sinceSync = lastSyncAt ? Date.now() - lastSyncAt : -1;
+		hudLine(
+			phase,
+			`#${n} ${cardEl ? "CARD" : "empty"} isDrag=${canvas.isDragging ? 1 : 0} int=${interacting ? 1 : 0} ph=${activePointers.size} dSync=${sinceSync} syncN=${syncCount} tgt=${tgt}`
+		);
 	};
 	const onPointerDown = (e: Event) => {
 		const id = (e as PointerEvent).pointerId ?? 0;
@@ -686,8 +681,7 @@ export function registerCanvasMaskHandler(
 		);
 		syncPointerHeld();
 		markInteracting();
-		downCount++;
-		reportHud(e);
+		reportHud("DOWN", e, ++downCount);
 	};
 	const onPointerRelease = (e: Event) => {
 		const id = (e as PointerEvent).pointerId;
@@ -701,8 +695,7 @@ export function registerCanvasMaskHandler(
 		}
 		syncPointerHeld();
 		markInteracting();
-		upCount++;
-		reportHud(e);
+		reportHud("UP", e, ++upCount);
 	};
 	// All mobile (phones + tablets): passive pointer tracking so any in-progress
 	// touch (card drag, long-press, box-select, pan) suppresses the maintenance
@@ -794,6 +787,15 @@ export function registerCanvasMaskHandler(
 		scanCanvasEditingNodes(canvas.nodes.values());
 	}, mobile ? 900 : 500);
 
+	// Diagnostics only: live sample of drag/suppression state while at rest.
+	const hudSampler = window.setInterval(() => {
+		if (!hudEnabled()) return;
+		hudLine(
+			"now",
+			`isDrag=${canvas.isDragging ? 1 : 0} int=${interacting ? 1 : 0} ph=${activePointers.size} dSync=${lastSyncAt ? Date.now() - lastSyncAt : -1}`
+		);
+	}, 250);
+
 	// Idle self-heal: only re-apply masks that went missing (e.g. after rerender).
 	const maintainInterval = window.setInterval(() => {
 		if (interacting || pointerHeld || canvas.isDragging) return;
@@ -822,6 +824,7 @@ export function registerCanvasMaskHandler(
 		window.clearInterval(bootInterval);
 		window.clearInterval(editScanInterval);
 		window.clearInterval(maintainInterval);
+		window.clearInterval(hudSampler);
 		if (debounceTimer) clearTimeout(debounceTimer);
 		if (gestureTimer) clearTimeout(gestureTimer);
 		if (mobile) {

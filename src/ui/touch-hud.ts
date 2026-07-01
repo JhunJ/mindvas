@@ -1,11 +1,10 @@
 /**
- * Temporary on-screen touch diagnostics HUD (mobile/tablet). It shows, in real
- * time, what happens on each pointerdown and whether Mindvas sync runs during a
- * gesture — so we can pin down why a second long-press after moving a card falls
- * through to a canvas pan instead of grabbing the card.
+ * Temporary on-screen touch diagnostics HUD (mobile/tablet). Shows, in real
+ * time, what happens on each pointerdown/up and whether Mindvas sync / Obsidian
+ * drag state changes between gestures — so we can pin down why a second long-
+ * press after moving a card only pans instead of grabbing the card.
  *
- * Toggled by a command; off by default. Purely observational (no listeners that
- * could affect gestures) — it only reads values pushed to it via `hudSet`.
+ * Toggled by a command; off by default. Purely observational.
  */
 
 const FLAG = "__mindvasTouchHud";
@@ -15,8 +14,8 @@ interface Win {
 }
 
 let hudEl: HTMLElement | null = null;
-const data: Record<string, string | number> = {};
-const order = ["down", "tgt", "dragTgt", "int", "ph", "isDrag", "sinceSync", "syncN", "up"];
+const lines = new Map<string, string>();
+const lineOrder = ["DOWN", "UP", "now"];
 
 export function hudEnabled(): boolean {
 	return !!(window as unknown as Win)[FLAG];
@@ -43,15 +42,19 @@ export function toggleHud(): boolean {
 	return !!w[FLAG];
 }
 
-export function hudSet(key: string, value: string | number): void {
+/** Set a named line (e.g. "DOWN", "UP", "now"). */
+export function hudLine(id: string, text: string): void {
 	if (!hudEnabled()) return;
-	data[key] = value;
+	lines.set(id, text);
 	ensureHud();
 	render();
 }
 
 function render(): void {
 	if (!hudEl) return;
-	const keys = [...order.filter((k) => k in data), ...Object.keys(data).filter((k) => !order.includes(k))];
-	hudEl.textContent = keys.map((k) => `${k}=${data[k]}`).join("  ");
+	const ids = [
+		...lineOrder.filter((k) => lines.has(k)),
+		...[...lines.keys()].filter((k) => !lineOrder.includes(k)),
+	];
+	hudEl.textContent = ids.map((id) => `${id}: ${lines.get(id)}`).join("\n");
 }
