@@ -196,6 +196,48 @@ function setIframeVisible(node: CanvasNode, visible: boolean): void {
 	setIframeVisibleFromHost(node.nodeEl, visible);
 }
 
+/**
+ * Mobile whole-card reveal: the tape covers the whole card and is
+ * pointer-events:none (so native drag/long-press/box-select always reach the
+ * card). Detect a stationary tap on the card itself to toggle the mask. A drag
+ * (>8px) never toggles, so moving the card still works. Passive listeners only.
+ */
+function attachCardTapReveal(node: CanvasNode, key: string, onRefresh: () => void): void {
+	const el = node.nodeEl;
+	if (!el || el.dataset.mindvasTapReveal === "1") return;
+	el.dataset.mindvasTapReveal = "1";
+
+	let sx = 0;
+	let sy = 0;
+	let moved = false;
+	el.addEventListener(
+		"pointerdown",
+		(e: PointerEvent) => {
+			sx = e.clientX;
+			sy = e.clientY;
+			moved = false;
+		},
+		{ passive: true }
+	);
+	el.addEventListener(
+		"pointermove",
+		(e: PointerEvent) => {
+			if (Math.hypot(e.clientX - sx, e.clientY - sy) > 8) moved = true;
+		},
+		{ passive: true }
+	);
+	el.addEventListener(
+		"pointerup",
+		() => {
+			if (moved || node.isEditing) return;
+			if (!isNodeMasked(node.canvas, node.id)) return;
+			toggleRevealed(key);
+			onRefresh();
+		},
+		{ passive: true }
+	);
+}
+
 function ensureWholeNodeOverlay(node: CanvasNode, canvasPath: string, onRefresh: () => void): void {
 	const host = getMaskOverlayHost(node);
 	if (!host) return;
@@ -214,6 +256,8 @@ function ensureWholeNodeOverlay(node: CanvasNode, canvasPath: string, onRefresh:
 		host.style.position = "relative";
 		host.appendChild(overlay);
 	}
+
+	if (isMobileApp()) attachCardTapReveal(node, key, onRefresh);
 
 	overlay.dataset.mindvasKey = key;
 	const nodeColor = getNodeMaskColor(node.canvas, node.id) ?? "yellow";

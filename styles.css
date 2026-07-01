@@ -571,13 +571,17 @@ body.mindvas-mobile .mindvas-mask-tape {
 	min-height: 44px;
 }
 
-/* Mobile/Tablet: masks stay tappable (pointer-events:auto from the base rules).
-   A short tap toggles reveal; a drag is detected by the tap-vs-drag handlers in
-   JS, which let pointerdown/move fall through so the card still moves. Keep
-   touch-action:none so the browser doesn't hijack the gesture as a page scroll
-   before the canvas can treat it as a drag/box-select. */
+/* Whole-card masks cover the entire card, so they must NOT catch touches — the
+   card needs native long-press/drag/box-select. They are pointer-events:none and
+   a card-level tap handler (attachCardTapReveal) toggles the reveal instead. */
 body.mindvas-mobile .mindvas-mask-tape,
-body.mindvas-mobile .mindvas-mask-preview,
+body.mindvas-mobile .mindvas-mask-preview {
+	pointer-events: none !important;
+}
+
+/* Inline masks are small text spans (rarely a drag start point) and stay
+   tappable via the JS tap-vs-drag handlers; touch-action:none stops the browser
+   from hijacking the gesture before the canvas can drag/box-select. */
 body.mindvas-mobile .mindvas-inline-tape,
 body.mindvas-mobile .mindvas-inline-revealed,
 body.mindvas-mobile .mindvas-inline-mask-wrap {
