@@ -40,6 +40,23 @@
 	color: var(--text-normal);
 }
 
+/* Plugin on/off toggle (power icon) in canvas toolbar */
+.mindvas-plugin-toggle-btn {
+	color: var(--text-muted);
+}
+
+.mindvas-plugin-toggle-btn:hover {
+	color: var(--text-normal);
+}
+
+.mindvas-plugin-toggle-btn.is-active {
+	color: var(--interactive-accent);
+}
+
+.mindvas-plugin-toggle-btn.is-off {
+	opacity: 0.4;
+}
+
 /* ── Mask list panel ── */
 .mindvas-mask-filter-bar {
 	display: flex;

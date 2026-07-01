@@ -19,6 +19,7 @@ import { editorOverlapsMask, unwrapMaskInEditor } from "./mask-unmask";
 import { addUnmaskMenuItem } from "./mask-colors";
 import { addMaskSubmenu } from "./mask-picker";
 import { refreshAllCanvasMasks } from "./mask-canvas";
+import { isMindvasEnabled } from "../plugin-enabled";
 import {
 	findCanvasNodeForEditor,
 	applyMaskInCanvasEditor,
@@ -36,6 +37,7 @@ const MASK_BADGE: Record<MaskColor, string> = {
 export function registerNoteMaskSupport(plugin: Plugin): void {
 	plugin.registerMarkdownPostProcessor(
 		(el, ctx) => {
+			if (!isMindvasEnabled()) return;
 			const path = ctx.sourcePath;
 			const file = plugin.app.vault.getAbstractFileByPath(path);
 			if (!(file instanceof TFile)) return;
@@ -74,6 +76,7 @@ export function registerNoteMaskSupport(plugin: Plugin): void {
 	let noteModifyTimer: ReturnType<typeof setTimeout> | null = null;
 	plugin.registerEvent(
 		plugin.app.vault.on("modify", (file) => {
+			if (!isMindvasEnabled()) return;
 			if (!(file instanceof TFile) || file.extension !== "md") return;
 			if (noteModifyTimer) clearTimeout(noteModifyTimer);
 			noteModifyTimer = setTimeout(() => refreshAllCanvasMasks(plugin.app), 120);
@@ -82,6 +85,7 @@ export function registerNoteMaskSupport(plugin: Plugin): void {
 
 	plugin.registerEvent(
 		plugin.app.workspace.on("editor-menu", (menu, editor, view) => {
+			if (!isMindvasEnabled()) return;
 			const canvasNode = findCanvasNodeForEditor(plugin.app, editor);
 			const hasNoteFile = Boolean(view?.file);
 

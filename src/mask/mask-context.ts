@@ -3,6 +3,7 @@ import type { Plugin } from "obsidian";
 import type { Canvas } from "../types/canvas-internal";
 import { unmaskByKey } from "./mask-unmask";
 import { addUnmaskMenuItem } from "./mask-colors";
+import { isMindvasEnabled } from "../plugin-enabled";
 
 type CanvasGetter = () => Canvas | null;
 type RefreshFn = () => void;
@@ -32,6 +33,7 @@ export function registerMaskContextMenu(
 		document,
 		"contextmenu",
 		(evt) => {
+			if (!isMindvasEnabled()) return;
 			const target = findMaskContextTarget(evt.target);
 			if (!target) return;
 

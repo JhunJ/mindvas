@@ -27,6 +27,7 @@ import {
 	refreshAllCanvasMasks,
 	coverAllMasks,
 	revealAllMasks,
+	clearCanvasMaskUI,
 } from "./mask/mask-canvas";
 import { buildNodeMaskMenu } from "./mask/mask-toolbar";
 import { registerNoteMaskSupport } from "./mask/mask-note";
@@ -47,6 +48,7 @@ import { toggleHud } from "./ui/touch-hud";
 import { registerMobileCanvasImageDismiss } from "./ui/gesture-bypass";
 import { arrowShortcutExtension } from "./ui/arrow-shortcut";
 import { maskEditorExtension } from "./mask/mask-editor-extension";
+import { setMindvasEnabledCheck } from "./plugin-enabled";
 
 export default class CanvasMindMapPlugin extends Plugin {
 	settings: MindMapSettings = DEFAULT_SETTINGS;
@@ -65,6 +67,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 	private cleanupInsertNodeHandler: (() => void) | null = null;
 	private interceptedCanvas: Canvas | null = null;
 	private toggleBtnEl: HTMLElement | null = null;
+	private pluginToggleBtnEl: HTMLElement | null = null;
 	private imageBtnEl: HTMLElement | null = null;
 	private cleanupGroupBoundsHandler: (() => void) | null = null;
 	private cleanupSelectionSyncHandler: (() => void) | null = null;
@@ -97,6 +100,8 @@ export default class CanvasMindMapPlugin extends Plugin {
 	async onload(): Promise<void> {
 		try {
 			await this.loadSettings();
+			setMindvasEnabledCheck(() => this.settings.pluginEnabled);
+			document.body.toggleClass("mindvas-plugin-off", !this.settings.pluginEnabled);
 			syncMobileBodyClass();
 			this.initServices();
 			this.registerEditorExtension(arrowShortcutExtension());
@@ -110,6 +115,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 			registerMobileCanvasImageDismiss(this);
 			setMaskCanvasRefresh(() => refreshAllCanvasMasks(this.app));
 			this.app.workspace.onLayoutReady(() => {
+				if (!this.settings.pluginEnabled) return;
 				this.ensureCanvasMaskHandlers();
 				refreshAllCanvasMasks(this.app);
 				window.setTimeout(() => refreshAllCanvasMasks(this.app), 600);
@@ -437,6 +443,13 @@ export default class CanvasMindMapPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "toggle-plugin",
+			name: "Mindvas 켜기/끄기",
+			icon: "power",
+			callback: () => void this.togglePluginEnabled(),
+		});
+
+		this.addCommand({
 			id: "toggle-touch-hud",
 			name: "진단: 터치 HUD 켜기/끄기 (임시)",
 			icon: "bug",
@@ -720,6 +733,11 @@ export default class CanvasMindMapPlugin extends Plugin {
 			this.imageBtnEl.remove();
 			this.imageBtnEl = null;
 		}
+		if (this.pluginToggleBtnEl) {
+			this.pluginToggleBtnEl.remove();
+			this.pluginToggleBtnEl = null;
+		}
+		document.body.removeClass("mindvas-plugin-off");
 	}
 
 	/**
@@ -809,12 +827,20 @@ export default class CanvasMindMapPlugin extends Plugin {
 				this.imageBtnEl.remove();
 				this.imageBtnEl = null;
 			}
+			if (this.pluginToggleBtnEl) {
+				this.pluginToggleBtnEl.remove();
+				this.pluginToggleBtnEl = null;
+			}
 			this.hideOutline();
 			return;
 		}
 
-		// Inject mindmap toggle button into canvas toolbar
-		this.injectToggleButton(canvas);
+		this.injectCanvasToolbar(canvas);
+
+		if (!this.settings.pluginEnabled) {
+			this.hideOutline();
+			return;
+		}
 
 		// Mobile (phones + tablets): keep the current viewport when the on-screen
 		// keyboard opens for card editing instead of letting Obsidian auto-zoom-to
@@ -1112,7 +1138,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 	}, 300);
 
 	private debouncedMaskRefresh = debounce(() => {
-		if (this.unloaded) return;
+		if (this.unloaded || !this.settings.pluginEnabled) return;
 		refreshAllCanvasMasks(this.app);
 		this.ensureCanvasMaskHandlers();
 	}, 150);
@@ -1123,6 +1149,7 @@ export default class CanvasMindMapPlugin extends Plugin {
 	}
 
 	private ensureCanvasMaskHandlers(): void {
+		if (!this.settings.pluginEnabled) return;
 		const open = new Set<Canvas>();
 		for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
 			const canvas = (leaf.view as { canvas?: Canvas }).canvas;
@@ -1591,8 +1618,146 @@ export default class CanvasMindMapPlugin extends Plugin {
 		if (isPhone()) this.mobileToolbar?.updateFab(canvas);
 	}
 
-	private injectToggleButton(canvas: Canvas): void {
-		// Remove previous buttons
+	async setPluginEnabled(enabled: boolean): Promise<void> {
+		if (this.settings.pluginEnabled === enabled) return;
+		this.settings.pluginEnabled = enabled;
+		await this.saveSettings();
+		this.applyPluginEnabledState();
+	}
+
+	private async togglePluginEnabled(): Promise<void> {
+		await this.setPluginEnabled(!this.settings.pluginEnabled);
+		new Notice(this.settings.pluginEnabled ? "Mindvas 켜짐" : "Mindvas 꺼짐");
+	}
+
+	private applyPluginEnabledState(): void {
+		document.body.toggleClass("mindvas-plugin-off", !this.settings.pluginEnabled);
+		this.updatePluginToggleButton();
+		if (!this.settings.pluginEnabled) {
+			this.teardownMindvasFeatures();
+		} else {
+			const leaf = this.app.workspace.activeLeaf;
+			if (leaf) this.onLeafChange(leaf);
+			else {
+				this.ensureCanvasMaskHandlers();
+				refreshAllCanvasMasks(this.app);
+			}
+		}
+	}
+
+	private teardownMindvasFeatures(): void {
+		this.cancelPendingAsync();
+		this.unwrapCanvasMethods();
+		if (this.cleanupClickHandler) {
+			this.cleanupClickHandler();
+			this.cleanupClickHandler = null;
+		}
+		if (this.cleanupDragHandler) {
+			this.cleanupDragHandler();
+			this.cleanupDragHandler = null;
+		}
+		if (this.cleanupSubtreeDragHandler) {
+			this.cleanupSubtreeDragHandler();
+			this.cleanupSubtreeDragHandler = null;
+		}
+		if (this.cleanupGroupDragHandler) {
+			this.cleanupGroupDragHandler();
+			this.cleanupGroupDragHandler = null;
+		}
+		if (this.cleanupGroupBoundsHandler) {
+			this.cleanupGroupBoundsHandler();
+			this.cleanupGroupBoundsHandler = null;
+		}
+		if (this.cleanupSelectionSyncHandler) {
+			this.cleanupSelectionSyncHandler();
+			this.cleanupSelectionSyncHandler = null;
+		}
+		if (this.cleanupInsertNodeHandler) {
+			this.cleanupInsertNodeHandler();
+			this.cleanupInsertNodeHandler = null;
+		}
+		if (this.cleanupNavHandler) {
+			this.cleanupNavHandler();
+			this.cleanupNavHandler = null;
+		}
+		if (this.cleanupBranchFoldHandler) {
+			this.cleanupBranchFoldHandler();
+			this.cleanupBranchFoldHandler = null;
+		}
+		if (this.cleanupGlobalMaskSelectionHandler) {
+			this.cleanupGlobalMaskSelectionHandler();
+			this.cleanupGlobalMaskSelectionHandler = null;
+		}
+		if (this.cleanupMobileEditViewportHandler) {
+			this.cleanupMobileEditViewportHandler();
+			this.cleanupMobileEditViewportHandler = null;
+		}
+		this.clearAllCanvasMaskHandlers();
+		for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
+			const canvas = (leaf.view as { canvas?: Canvas }).canvas;
+			if (canvas) clearCanvasMaskUI(canvas);
+		}
+		this.removeMindmapToolbarButtons();
+		this.hideOutline();
+		this.mobileToolbar?.unmount();
+	}
+
+	private removeMindmapToolbarButtons(): void {
+		if (this.toggleBtnEl) {
+			this.toggleBtnEl.remove();
+			this.toggleBtnEl = null;
+		}
+		if (this.imageBtnEl) {
+			this.imageBtnEl.remove();
+			this.imageBtnEl = null;
+		}
+	}
+
+	private injectCanvasToolbar(canvas: Canvas): void {
+		if (!this.settings.pluginEnabled) {
+			this.removeMindmapToolbarButtons();
+		} else {
+			this.injectMindmapToolbarButtons(canvas);
+		}
+		this.injectPluginToggleButton(canvas);
+	}
+
+	private injectPluginToggleButton(canvas: Canvas): void {
+		if (this.pluginToggleBtnEl) {
+			this.pluginToggleBtnEl.remove();
+			this.pluginToggleBtnEl = null;
+		}
+
+		const controls = canvas.view.containerEl.querySelector(".canvas-controls");
+		if (!controls) return;
+
+		const btn = document.createElement("div");
+		btn.addClass("mindvas-plugin-toggle-btn", "clickable-icon");
+		btn.setAttribute("aria-label", "Mindvas 켜기/끄기");
+		this.registerDomEvent(btn, "click", (e) => {
+			e.stopPropagation();
+			void this.togglePluginEnabled();
+		});
+
+		controls.prepend(btn);
+		this.pluginToggleBtnEl = btn;
+		this.updatePluginToggleButton();
+	}
+
+	private updatePluginToggleButton(): void {
+		if (!this.pluginToggleBtnEl) return;
+		const on = this.settings.pluginEnabled;
+		this.pluginToggleBtnEl.empty();
+		setIcon(this.pluginToggleBtnEl, "power");
+		this.pluginToggleBtnEl.toggleClass("is-active", on);
+		this.pluginToggleBtnEl.toggleClass("is-off", !on);
+		this.pluginToggleBtnEl.setAttribute(
+			"aria-label",
+			on ? "Mindvas 켜짐 (클릭하여 끄기)" : "Mindvas 꺼짐 (클릭하여 켜기)"
+		);
+	}
+
+	private injectMindmapToolbarButtons(canvas: Canvas): void {
 		if (this.toggleBtnEl) {
 			this.toggleBtnEl.remove();
 			this.toggleBtnEl = null;
@@ -1602,10 +1767,10 @@ export default class CanvasMindMapPlugin extends Plugin {
 			this.imageBtnEl = null;
 		}
 
-		const controls = canvas.view.containerEl.querySelector('.canvas-controls');
+		const controls = canvas.view.containerEl.querySelector(".canvas-controls");
 		if (!controls) return;
 
-		const btn = document.createElement('div');
+		const btn = document.createElement("div");
 		btn.addClass('mindvas-toggle-btn', 'clickable-icon');
 		btn.setAttribute('aria-label', 'Toggle mindmap mode');
 		this.registerDomEvent(btn, 'click', (e) => {

@@ -18,6 +18,7 @@ import { applyMasksFromSource, cleanupMaskTagRemnants } from "./mask-source";
 import { getMaskCanvasRefresh } from "./mask-clicks";
 import { isTextCardReadMode, syncTextCardReadMask, clearTextCardOverlay } from "./mask-canvas-text";
 import { isTextCanvasNode, isFileCanvasNode, isMaskableCanvasNode } from "./mask-canvas-node";
+import { isMindvasEnabled } from "../plugin-enabled";
 
 function resolveCanvasFilePath(node: CanvasNode): string | null {
 	const runtimeFile = node.file;
@@ -80,6 +81,7 @@ function applyMasksToPreviewEl(
 export function registerCanvasMarkdownMaskProcessor(plugin: Plugin): void {
 	plugin.registerMarkdownPostProcessor(
 		(el, ctx) => {
+			if (!isMindvasEnabled()) return;
 			const nodeEl = el.closest(".canvas-node") as HTMLElement | null;
 			if (!nodeEl) return;
 
@@ -150,6 +152,7 @@ export function registerAdvancedCanvasMaskHooks(plugin: Plugin): void {
 	for (const name of ADVANCED_CANVAS_EVENTS) {
 		plugin.registerEvent(
 			ws.on(name, () => {
+				if (!isMindvasEnabled()) return;
 				window.setTimeout(() => {
 					getMaskCanvasRefresh()?.();
 				}, 50);
@@ -161,6 +164,7 @@ export function registerAdvancedCanvasMaskHooks(plugin: Plugin): void {
 		ws.on(
 			"advanced-canvas:node-editing-state-changed",
 			(_canvas: unknown, node: unknown, editing: unknown) => {
+				if (!isMindvasEnabled()) return;
 				const n = node as CanvasNode;
 				if (!isMaskableCanvasNode(n)) return;
 				const isEditing = editing === true;

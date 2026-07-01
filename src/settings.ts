@@ -2,6 +2,7 @@ import { App, PluginSettingTab, Setting, debounce } from "obsidian";
 import type CanvasMindMapPlugin from "./main";
 
 export interface MindMapSettings {
+	pluginEnabled: boolean;
 	autoLayout: boolean;
 	autoColor: boolean;
 	horizontalGap: number;
@@ -16,6 +17,7 @@ export interface MindMapSettings {
 }
 
 export const DEFAULT_SETTINGS: MindMapSettings = {
+	pluginEnabled: true,
 	autoLayout: true,
 	autoColor: true,
 	horizontalGap: 80,
@@ -44,6 +46,17 @@ export class MindMapSettingTab extends PluginSettingTab {
 		const debouncedSave = debounce(async () => {
 			await this.plugin.saveSettings();
 		}, 500);
+
+		new Setting(containerEl)
+			.setName("Mindvas 활성화")
+			.setDesc("끄면 마스킹·마인드맵·터치 보조 기능이 모두 멈춥니다. 캔버스 우측 전원 아이콘과 동일합니다.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.pluginEnabled)
+					.onChange(async (value) => {
+						await this.plugin.setPluginEnabled(value);
+					})
+			);
 
 		new Setting(containerEl)
 			.setName("Default mindmap mode")

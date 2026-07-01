@@ -3,6 +3,8 @@
  * tap-to-expand / tap-to-dismiss for canvas images and media popovers.
  */
 
+import { isMindvasEnabled } from "../plugin-enabled";
+
 export function shouldBypassMindvasGesture(target: EventTarget | null): boolean {
 	if (!(target instanceof HTMLElement)) return false;
 	if (target.closest(".popover, .modal, .menu, .prompt, .suggestion-container")) return true;
@@ -41,6 +43,7 @@ export function registerMobileCanvasImageDismiss(plugin: import("obsidian").Plug
 		document,
 		"pointerup",
 		(e) => {
+			if (!isMindvasEnabled()) return;
 			const expanded = findExpandedCanvasImageEmbed();
 			if (!expanded) return;
 			const target = e.target as HTMLElement;

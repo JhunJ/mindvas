@@ -2,6 +2,7 @@ import type { Plugin } from "obsidian";
 import { toggleRevealed } from "./mask-reveal";
 import { isMobileApp } from "../ui/mobile-utils";
 import { shouldBypassMindvasGesture } from "../ui/gesture-bypass";
+import { isMindvasEnabled } from "../plugin-enabled";
 
 type MaskRefreshFn = () => void;
 
@@ -34,6 +35,7 @@ export function registerMaskClickDelegation(plugin: Plugin): void {
 			document,
 			"pointerdown",
 			(e) => {
+				if (!isMindvasEnabled()) return;
 				if (shouldBypassMindvasGesture(e.target)) return;
 				const target = e.target as HTMLElement | null;
 				downTape = target?.closest<HTMLElement>(".mindvas-mask-tape") ?? null;
@@ -48,6 +50,7 @@ export function registerMaskClickDelegation(plugin: Plugin): void {
 			document,
 			"pointermove",
 			(e) => {
+				if (!isMindvasEnabled()) return;
 				if (!downTape) return;
 				if (Math.hypot(e.clientX - startX, e.clientY - startY) > DRAG_SLOP) moved = true;
 			},
@@ -59,6 +62,7 @@ export function registerMaskClickDelegation(plugin: Plugin): void {
 		document,
 		"pointerup",
 		(e) => {
+			if (!isMindvasEnabled()) return;
 			if (shouldBypassMindvasGesture(e.target)) return;
 			const target = e.target as HTMLElement | null;
 			if (!target) {
