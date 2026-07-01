@@ -567,10 +567,12 @@ export function registerCanvasMaskHandler(
 	const wrapper = canvas.wrapperEl;
 	const gestureOpts = { passive: true, capture: true } as AddEventListenerOptions;
 	const onGesture = () => markInteracting();
-	// Gesture suppression is a phone-only performance measure. On desktop AND
-	// tablets it is unnecessary and breaks press-and-drag to move cards, so we
-	// keep zero extra pointer listeners there.
-	if (useEventSync) {
+	// Suppress sync while a touch gesture is in progress on ALL touch devices
+	// (phones AND tablets). This is critical for tablet card dragging: without
+	// it, a mid-drag requestFrame (e.g. from the edge updater) re-renders the
+	// card DOM and the touch drag is cancelled. Desktop uses a mouse with
+	// pointer capture, so it needs no such listeners (and they regressed drag).
+	if (mobile) {
 		wrapper?.addEventListener("pointerdown", onGesture, gestureOpts);
 		wrapper?.addEventListener("pointermove", onGesture, gestureOpts);
 		wrapper?.addEventListener("pointerup", onGesture, gestureOpts);
@@ -667,7 +669,7 @@ export function registerCanvasMaskHandler(
 		window.clearInterval(maintainInterval);
 		if (debounceTimer) clearTimeout(debounceTimer);
 		if (gestureTimer) clearTimeout(gestureTimer);
-		if (useEventSync) {
+		if (mobile) {
 			wrapper?.removeEventListener("pointerdown", onGesture, gestureOpts);
 			wrapper?.removeEventListener("pointermove", onGesture, gestureOpts);
 			wrapper?.removeEventListener("pointerup", onGesture, gestureOpts);
