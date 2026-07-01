@@ -792,7 +792,7 @@ export function registerCanvasMaskHandler(
 		if (!hudEnabled()) return;
 		hudLine(
 			"now",
-			`isDrag=${canvas.isDragging ? 1 : 0} int=${interacting ? 1 : 0} ph=${activePointers.size} dSync=${lastSyncAt ? Date.now() - lastSyncAt : -1}`
+			`isDrag=${canvas.isDragging ? 1 : 0} int=${interacting ? 1 : 0} ph=${activePointers.size} dSync=${lastSyncAt ? Date.now() - lastSyncAt : -1} syncN=${syncCount}`
 		);
 	}, 250);
 
